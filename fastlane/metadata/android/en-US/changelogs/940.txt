@@ -1,0 +1,7 @@
+No storage permission any more — you grant one folder and that folder is the app's home; you can add more later.
+
+• The interface and sequencer are now C++, shared with Windows, Linux and handheld builds
+• New effects: VTR/VMV mixer faders, and AUS/AUF to ramp VOL, PAN, REV, DEL, VTR, VMV
+• R+UP/R+DOWN zooms the sample editor; R+LEFT/R+RIGHT moves the qwerty text cursor
+• Screen recordings get the click at the volume you hear
+• .sf3 SoundFonts are temporarily unavailable; .sf2 is fine

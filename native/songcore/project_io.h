@@ -1,0 +1,1036 @@
+#ifndef SPRITESTEP_SONGCORE_PROJECT_IO_H
+#define SPRITESTEP_SONGCORE_PROJECT_IO_H
+
+// ─── .ptp / .pti reader + writer + migrate/normalize ────────────────────────────────────────────
+//
+// Reads with nlohmann/json (tolerant of unknown keys and of any whitespace); writes with a
+// hand-rolled MINIFIED emitter. Both directions are proven by tools/ptroundtrip against the golden
+// projects in tools/testdata.
+//
+// ⚠️ THE WRITTEN FORM IS MINIFIED; THE SCHEMA IS NOT NEGOTIABLE. Layout was 82 % of a .ptp, and
+// autosave rewrites the whole file every 3 s — 443 KB → 78 KB is flash wear, on a device whose
+// storage is the part that wears out. Everything a reader can observe is unchanged: the same keys,
+// in the same order, with the same omission rules. ⚠️ Any project a user already has still loads —
+// the emitter is the only thing that changed, and no reader here has ever cared about layout.
+// (JsonWriter still pretty-prints on request, and theme_io.h asks; see JsonLayout for why.)
+//
+// ⚠️ THE GOLDENS ARE STILL kotlinx's PRETTY-PRINTED BYTES AND MUST STAY THAT WAY. They are the one
+// artifact in this tree written by an implementation that no longer exists, which is the only reason
+// they can catch a schema drift in ours; regenerating them from this emitter would certify whatever
+// it currently does. ptroundtrip compares the parsed DOMs — key for key, in order — so the goldens
+// keep pinning everything except the layout that was deliberately dropped.
+//
+// The output contract (inherited from kotlinx, verified against the golden .ptp files):
+//   * encodeDefaults = FALSE; unknown keys ignored on read.
+//   * `{"key":value,...}` — no spaces, no newlines, none needed anywhere.
+//     Empty object = "{}", empty array = "[]"; no trailing newline.
+//   * Keys emitted in @Serializable DECLARATION order.
+//   * encodeDefaults=false omission, with kotlinx's value-vs-default comparison semantics:
+//       - scalar / String / enum / Note / SFOverrides / List : omit when == the FIELD default
+//         (List default is the empty list → omit when empty).
+//       - Array / IntArray fields : ALWAYS emitted (kotlinx compares arrays by reference, so a
+//         freshly-built default array is never "equal" to the instance → never omitted).
+//       - nullable `= null` fields : omit when null.
+//       - fields with NO default (ids, Note.pitch/octave, InstrumentPreset.instrument) : always.
+//   * enums serialise by entry NAME; every number is an integer (no floats in this schema).
+
+#include "model.h"
+#include "../vendor/nlohmann/json.hpp"
+
+#include <string>
+#include <vector>
+#include <optional>
+#include <cstdio>
+
+namespace songcore {
+
+using nlohmann::json;
+
+// ─── parse helpers (missing / wrong-typed key → supplied default, mirroring kotlinx) ────────────
+
+namespace detail {
+
+inline int get_int(const json& j, const char* k, int def) {
+    auto it = j.find(k);
+    return (it != j.end() && it->is_number()) ? it->get<int>() : def;
+}
+inline int64_t get_i64(const json& j, const char* k, int64_t def) {
+    auto it = j.find(k);
+    return (it != j.end() && it->is_number()) ? it->get<int64_t>() : def;
+}
+inline bool get_bool(const json& j, const char* k, bool def) {
+    auto it = j.find(k);
+    return (it != j.end() && it->is_boolean()) ? it->get<bool>() : def;
+}
+inline std::string get_str(const json& j, const char* k, const std::string& def) {
+    auto it = j.find(k);
+    return (it != j.end() && it->is_string()) ? it->get<std::string>() : def;
+}
+// nullable string: absent OR json null → nullopt; string → value (matches kotlinx String? = null).
+inline std::optional<std::string> get_opt_str(const json& j, const char* k) {
+    auto it = j.find(k);
+    if (it != j.end() && it->is_string()) return it->get<std::string>();
+    return std::nullopt;
+}
+
+inline Note parse_note(const json& j) {
+    Note n;
+    n.pitch  = get_int(j, "pitch",  n.pitch);
+    n.octave = get_int(j, "octave", n.octave);
+    return n;
+}
+
+inline PhraseStep parse_phrase_step(const json& j) {
+    PhraseStep s;
+    auto it = j.find("note");
+    if (it != j.end() && it->is_object()) s.note = parse_note(*it);
+    s.instrument = get_int(j, "instrument", s.instrument);
+    s.volume     = get_int(j, "volume",     s.volume);
+    s.fx1Type = get_int(j, "fx1Type", s.fx1Type);  s.fx1Value = get_int(j, "fx1Value", s.fx1Value);
+    s.fx2Type = get_int(j, "fx2Type", s.fx2Type);  s.fx2Value = get_int(j, "fx2Value", s.fx2Value);
+    s.fx3Type = get_int(j, "fx3Type", s.fx3Type);  s.fx3Value = get_int(j, "fx3Value", s.fx3Value);
+    return s;
+}
+
+inline Phrase parse_phrase(const json& j, int index) {
+    Phrase p(get_int(j, "id", index));
+    auto it = j.find("steps");
+    if (it != j.end() && it->is_array()) {
+        p.steps.clear();
+        for (const auto& e : *it) p.steps.push_back(parse_phrase_step(e));
+    }
+    return p;
+}
+
+inline SequencerPattern parse_sequencer_pattern(const json& j) {
+    SequencerPattern p;
+    p.length = static_cast<uint8_t>(get_int(j, "length", p.length));
+    auto it = j.find("steps");
+    if (it != j.end() && it->is_array()) {
+        for (size_t i = 0; i < p.steps.size() && i < it->size(); ++i) {
+            if ((*it)[i].is_object()) p.steps[i] = parse_phrase_step((*it)[i]);
+        }
+    }
+    auto cond = j.find("conditions");
+    if (cond != j.end() && cond->is_array()) {
+        for (size_t i = 0; i < p.conditions.size() && i < cond->size(); ++i)
+            if ((*cond)[i].is_number_integer()) p.conditions[i] = static_cast<uint8_t>(std::clamp((*cond)[i].get<int>(), 0, 0xFF));
+    }
+    auto wait = j.find("waitPPQN");
+    if (wait != j.end() && wait->is_array()) {
+        for (size_t i = 0; i < p.wait_ppqn.size() && i < wait->size(); ++i)
+            if ((*wait)[i].is_number_integer()) p.wait_ppqn[i] = static_cast<uint8_t>(std::clamp((*wait)[i].get<int>(), 0, 0xFF));
+    }
+    auto trigless = j.find("trigless");
+    if (trigless != j.end() && trigless->is_array()) {
+        for (size_t i = 0; i < p.trigless.size() && i < trigless->size(); ++i)
+            if ((*trigless)[i].is_boolean()) p.trigless[i] = (*trigless)[i].get<bool>() ? 1 : 0;
+            else if ((*trigless)[i].is_number_integer()) p.trigless[i] = (*trigless)[i].get<int>() != 0 ? 1 : 0;
+    }
+    return p;
+}
+
+inline SequencerData parse_sequencer(const json& j) {
+    SequencerData d;
+    auto tracks = j.find("tracks");
+    if (tracks != j.end() && tracks->is_array()) {
+        for (size_t ti = 0; ti < d.tracks.size() && ti < tracks->size(); ++ti) {
+            const json& tj = (*tracks)[ti];
+            if (!tj.is_object()) continue;
+            d.tracks[ti].step_duration_multiplier = static_cast<uint8_t>(
+                get_int(tj, "stepDurationMultiplier", d.tracks[ti].step_duration_multiplier));
+            d.tracks[ti].shuffle = static_cast<uint8_t>(std::clamp(
+                get_int(tj, "shuffle", d.tracks[ti].shuffle), 0, 255));
+            const int dir = get_int(tj, "direction", static_cast<int>(d.tracks[ti].direction));
+            d.tracks[ti].direction = static_cast<SequencerDirection>(std::clamp(dir, 0, 3));
+            auto patterns = tj.find("patterns");
+            if (patterns == tj.end() || !patterns->is_array()) continue;
+            for (const auto& pj : *patterns) {
+                if (!pj.is_object()) continue;
+                int bank = get_int(pj, "bank", -1);
+                int pattern = get_int(pj, "pattern", -1);
+                if (bank < 0 || bank >= SEQUENCER_BANKS || pattern < 0 || pattern >= SEQUENCER_PATTERNS) continue;
+                d.tracks[ti].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pattern)] =
+                    parse_sequencer_pattern(pj);
+            }
+        }
+    }
+
+    auto scenes = j.find("scenes");
+    if (scenes != j.end() && scenes->is_array()) {
+        d.scenes.reserve(scenes->size());
+        for (const auto& sj : *scenes) {
+            SequencerArrangeScene scene;
+            if (sj.is_object()) {
+                auto refs = sj.find("tracks");
+                if (refs != sj.end() && refs->is_array()) {
+                    for (size_t ti = 0; ti < scene.tracks.size() && ti < refs->size(); ++ti) {
+                        const json& rj = (*refs)[ti];
+                        if (!rj.is_object()) continue;
+                        scene.tracks[ti].active = get_bool(rj, "active", false);
+                        scene.tracks[ti].bank = static_cast<uint8_t>(get_int(rj, "bank", 0));
+                        scene.tracks[ti].pattern = static_cast<uint8_t>(get_int(rj, "pattern", 0));
+                    }
+                }
+            }
+            d.scenes.push_back(scene);
+        }
+    }
+    return d;
+}
+
+inline std::vector<int> parse_int_array(const json& j, const char* k, const std::vector<int>& def) {
+    auto it = j.find(k);
+    if (it == j.end() || !it->is_array()) return def;
+    std::vector<int> v;
+    v.reserve(it->size());
+    for (const auto& e : *it) v.push_back(e.is_number() ? e.get<int>() : 0);
+    return v;
+}
+
+inline Chain parse_chain(const json& j, int index) {
+    Chain c(get_int(j, "id", index));
+    c.phraseRefs      = parse_int_array(j, "phraseRefs",      c.phraseRefs);
+    c.transposeValues = parse_int_array(j, "transposeValues", c.transposeValues);
+    // ⚠️ A chain has exactly CHAIN_ROWS rows, and the CHAIN editor indexes both arrays directly with
+    // a cursor row. `parse_int_array` returns whatever length the JSON held, and `normalize_project`
+    // repairs pool sizes rather than the arrays inside a Chain — so a hand-edited or half-written
+    // file could hand the editor a three-element array. Brought back to shape here, at the one place
+    // a Chain enters the program. (The scheduler does not rely on this: `chain_phrase_ref` bounds
+    // itself, because a Chain also reaches it from a test fixture that never parsed anything.)
+    c.phraseRefs.resize(CHAIN_ROWS, -1);
+    c.transposeValues.resize(CHAIN_ROWS, 0);
+    return c;
+}
+
+inline TableRow parse_table_row(const json& j) {
+    TableRow r;
+    r.transpose = get_int(j, "transpose", r.transpose);
+    r.volume    = get_int(j, "volume",    r.volume);
+    r.fx1Type = get_int(j, "fx1Type", r.fx1Type);  r.fx1Value = get_int(j, "fx1Value", r.fx1Value);
+    r.fx2Type = get_int(j, "fx2Type", r.fx2Type);  r.fx2Value = get_int(j, "fx2Value", r.fx2Value);
+    r.fx3Type = get_int(j, "fx3Type", r.fx3Type);  r.fx3Value = get_int(j, "fx3Value", r.fx3Value);
+    return r;
+}
+
+inline Table parse_table(const json& j, int index) {
+    Table t(get_int(j, "id", index));
+    t.name = get_str(j, "name", t.name);
+    auto it = j.find("rows");
+    if (it != j.end() && it->is_array()) {
+        t.rows.clear();
+        for (const auto& e : *it) t.rows.push_back(parse_table_row(e));
+    }
+    return t;
+}
+
+inline ModSlot parse_mod_slot(const json& j) {
+    ModSlot m;
+    { auto it = j.find("type"); if (it != j.end() && it->is_string()) mod_type_from_name(it->get<std::string>(), m.type); }
+    { auto it = j.find("dest"); if (it != j.end() && it->is_string()) mod_dest_from_name(it->get<std::string>(), m.dest); }
+    m.amount      = get_int(j, "amount",      m.amount);
+    m.attack      = get_int(j, "attack",      m.attack);
+    m.hold        = get_int(j, "hold",        m.hold);
+    m.decay       = get_int(j, "decay",       m.decay);
+    m.sustain     = get_int(j, "sustain",     m.sustain);
+    m.release     = get_int(j, "release",     m.release);
+    m.oscShape    = get_int(j, "oscShape",    m.oscShape);
+    m.lfoTrigMode = get_int(j, "lfoTrigMode", m.lfoTrigMode);
+    m.lfoFreq     = get_int(j, "lfoFreq",     m.lfoFreq);
+    return m;
+}
+
+inline Groove parse_groove(const json& j, int index) {
+    Groove g(get_int(j, "id", index));
+    g.steps = parse_int_array(j, "steps", g.steps);
+    return g;
+}
+
+inline Scale parse_scale(const json& j, int index) {
+    Scale s(get_int(j, "id", index));
+    s.name    = get_str(j, "name", s.name);
+    s.enabled = parse_int_array(j, "enabled", s.enabled);
+    s.offset  = parse_int_array(j, "offset",  s.offset);
+    // A hand-edited or truncated array must not leave a 12-degree consumer reading past its end.
+    s.enabled.resize(12, 1);
+    s.offset.resize(12, 0);
+    return s;
+}
+
+inline EqBand parse_eq_band(const json& j) {
+    EqBand b;
+    b.type = get_int(j, "type", b.type);
+    b.freq = get_int(j, "freq", b.freq);
+    b.gain = get_int(j, "gain", b.gain);
+    b.q    = get_int(j, "q",    b.q);
+    return b;
+}
+
+inline EqPreset parse_eq_preset(const json& j, int index) {
+    EqPreset e(get_int(j, "id", index));
+    auto it = j.find("bands");
+    if (it != j.end() && it->is_array()) {
+        e.bands.clear();
+        for (const auto& b : *it) e.bands.push_back(parse_eq_band(b));
+    }
+    return e;
+}
+
+inline Track parse_track(const json& j, int index) {
+    Track t(get_int(j, "id", index));
+    auto it = j.find("chainRefs");
+    if (it != j.end() && it->is_array()) {
+        t.chainRefs.clear();
+        for (const auto& e : *it) t.chainRefs.push_back(e.is_number() ? e.get<int>() : 0);
+    }
+    t.volume = get_int(j, "volume", t.volume);
+    t.mute   = get_bool(j, "mute",  t.mute);
+    t.solo   = get_bool(j, "solo",  t.solo);
+    return t;
+}
+
+inline SFOverrides parse_sf_overrides(const json& j) {
+    SFOverrides s;
+    s.ampAttack  = get_int(j, "ampAttack",  s.ampAttack);
+    s.ampDecay   = get_int(j, "ampDecay",   s.ampDecay);
+    s.ampSustain = get_int(j, "ampSustain", s.ampSustain);
+    s.ampRelease = get_int(j, "ampRelease", s.ampRelease);
+    s.filterCut  = get_int(j, "filterCut",  s.filterCut);
+    s.filterRes  = get_int(j, "filterRes",  s.filterRes);
+    return s;
+}
+
+inline Instrument parse_instrument(const json& j, int index) {
+    Instrument i(get_int(j, "id", index));
+    i.name           = get_str(j, "name", i.name);
+    i.sampleId       = get_int(j, "sampleId", i.sampleId);   // absent → -1 (field default), NOT index
+    i.volume         = get_int(j, "volume", i.volume);
+    i.pan            = get_int(j, "pan", i.pan);
+    { auto it = j.find("root"); if (it != j.end() && it->is_object()) i.root = parse_note(*it); }
+    i.detune         = get_int(j, "detune", i.detune);
+    i.drive          = get_int(j, "drive", i.drive);
+    i.crush          = get_int(j, "crush", i.crush);
+    i.downsample     = get_int(j, "downsample", i.downsample);
+    i.filterType     = get_str(j, "filterType", i.filterType);
+    i.filterCut      = get_int(j, "filterCut", i.filterCut);
+    i.filterRes      = get_int(j, "filterRes", i.filterRes);
+    i.sampleStart    = get_int(j, "sampleStart", i.sampleStart);
+    i.sampleEnd      = get_int(j, "sampleEnd", i.sampleEnd);
+    i.reverse        = get_bool(j, "reverse", i.reverse);
+    i.loopMode       = get_str(j, "loopMode", i.loopMode);
+    i.loopStart      = get_int(j, "loopStart", i.loopStart);
+    i.loopEnd        = get_int(j, "loopEnd", i.loopEnd);
+    i.sampleFilePath = get_opt_str(j, "sampleFilePath");
+    i.tableId        = get_int(j, "tableId", i.tableId);
+    i.tableTicRate   = get_int(j, "tableTicRate", i.tableTicRate);
+    { auto it = j.find("modSlots");
+      if (it != j.end() && it->is_array()) {
+          i.modSlots.clear();
+          for (const auto& m : *it) i.modSlots.push_back(parse_mod_slot(m));
+      } }
+    { auto it = j.find("instrumentType"); if (it != j.end() && it->is_string()) instrument_type_from_name(it->get<std::string>(), i.instrumentType); }
+    i.soundfontPath  = get_opt_str(j, "soundfontPath");
+    i.sfBank         = get_int(j, "sfBank", i.sfBank);
+    i.sfPreset       = get_int(j, "sfPreset", i.sfPreset);
+    { auto it = j.find("sfOverrides"); if (it != j.end() && it->is_object()) i.sfOverrides = parse_sf_overrides(*it); }
+    i.reverbSend     = get_int(j, "reverbSend", i.reverbSend);
+    i.delaySend      = get_int(j, "delaySend", i.delaySend);
+    i.eqSlot         = get_int(j, "eqSlot", i.eqSlot);
+    i.slicingMode    = get_int(j, "slicingMode", i.slicingMode);
+    i.transposeEnabled = get_bool(j, "transposeEnabled", i.transposeEnabled);
+    { auto it = j.find("sliceMarkers");
+      if (it != j.end() && it->is_array())
+          for (const auto& e : *it) i.sliceMarkers.push_back(e.is_number() ? e.get<int64_t>() : 0); }
+    i.midiChannel = get_int(j, "midiChannel", i.midiChannel);
+    i.midiBank    = get_int(j, "midiBank", i.midiBank);
+    i.midiProgram = get_int(j, "midiProgram", i.midiProgram);
+    i.midiLen     = get_int(j, "midiLen", i.midiLen);
+    { auto it = j.find("midiCC");
+      if (it != j.end() && it->is_array()) {
+          // Re-sized, never appended to: the slot COUNT is a UI constant, and a file written by a
+          // future build with more slots must not hand this one a vector the screen cannot draw.
+          for (size_t s = 0; s < i.midiCC.size() && s < it->size(); ++s) {
+              const json& e = (*it)[s];
+              if (!e.is_object()) continue;
+              i.midiCC[s].cc    = get_int(e, "cc", i.midiCC[s].cc);
+              i.midiCC[s].value = get_int(e, "value", i.midiCC[s].value);
+          }
+      } }
+    return i;
+}
+
+template <class T, class F>
+inline std::vector<T> parse_pool(const json& j, const char* k, F&& parse_elem) {
+    std::vector<T> v;
+    auto it = j.find(k);
+    if (it != j.end() && it->is_array()) {
+        int idx = 0;
+        for (const auto& e : *it) v.push_back(parse_elem(e, idx++));
+    }
+    return v;  // absent/empty → normalize() pads to canonical size
+}
+
+}  // namespace detail
+
+// Parse a decoded .ptp JSON object into a Project (scalar/field defaults for anything missing).
+// Pools are taken verbatim; call normalize_project() to repair pool sizes as the loader does.
+inline Project parse_project(const json& j) {
+    using namespace detail;
+    Project p;  // scalar members hold their field defaults; pools start EMPTY
+    p.version         = get_int(j, "version", p.version);
+    p.name            = get_str(j, "name", p.name);
+    p.tempo           = get_int(j, "tempo", p.tempo);
+    p.transpose       = get_int(j, "transpose", p.transpose);
+    p.masterVolume    = get_int(j, "masterVolume", p.masterVolume);
+    p.ottDepth        = get_int(j, "ottDepth", p.ottDepth);
+    p.masterBusFx     = get_int(j, "masterBusFx", p.masterBusFx);
+    p.dustDepth       = get_int(j, "dustDepth", p.dustDepth);
+    p.limiterPreGain  = get_int(j, "limiterPreGain", p.limiterPreGain);
+    p.eqPresets       = parse_pool<EqPreset>(j, "eqPresets", parse_eq_preset);
+    p.reverbFeedback  = get_int(j, "reverbFeedback", p.reverbFeedback);
+    p.reverbDamp      = get_int(j, "reverbDamp", p.reverbDamp);
+    p.reverbWet       = get_int(j, "reverbWet", p.reverbWet);
+    p.reverbInputEq   = get_int(j, "reverbInputEq", p.reverbInputEq);
+    p.reverbPreDelay  = get_int(j, "reverbPreDelay", p.reverbPreDelay);
+    p.reverbWidth     = get_int(j, "reverbWidth", p.reverbWidth);
+    p.reverbMod       = get_int(j, "reverbMod", p.reverbMod);
+    p.reverbAlgo      = get_int(j, "reverbAlgo", p.reverbAlgo);
+    p.reverbDecay     = get_int(j, "reverbDecay", p.reverbDecay);
+    p.reverbDensity   = get_int(j, "reverbDensity", p.reverbDensity);
+    p.delayTime       = get_int(j, "delayTime", p.delayTime);
+    p.delaySync       = get_bool(j, "delaySync", p.delaySync);
+    p.delayFeedback   = get_int(j, "delayFeedback", p.delayFeedback);
+    p.delayWet        = get_int(j, "delayWet", p.delayWet);
+    p.delayReverbSend = get_int(j, "delayReverbSend", p.delayReverbSend);
+    p.delayInputEq    = get_int(j, "delayInputEq", p.delayInputEq);
+    p.delayPong       = get_bool(j, "delayPong", p.delayPong);
+    p.delayTone       = get_int(j, "delayTone", p.delayTone);
+    p.delayWobble     = get_int(j, "delayWobble", p.delayWobble);
+    p.reverbMute      = get_bool(j, "reverbMute", p.reverbMute);
+    p.reverbSolo      = get_bool(j, "reverbSolo", p.reverbSolo);
+    p.delayMute       = get_bool(j, "delayMute", p.delayMute);
+    p.delaySolo       = get_bool(j, "delaySolo", p.delaySolo);
+    p.masterEqSlot    = get_int(j, "masterEqSlot", p.masterEqSlot);
+    p.phrases     = parse_pool<Phrase>(j, "phrases", parse_phrase);
+    p.chains      = parse_pool<Chain>(j, "chains", parse_chain);
+    p.tracks      = parse_pool<Track>(j, "tracks", parse_track);
+    p.instruments = parse_pool<Instrument>(j, "instruments", parse_instrument);
+    p.tables      = parse_pool<Table>(j, "tables", parse_table);
+    p.grooves     = parse_pool<Groove>(j, "grooves", parse_groove);
+    p.scales      = parse_pool<Scale>(j, "scales", parse_scale);
+    p.scaleKey    = get_int(j, "scaleKey", p.scaleKey);
+    p.midiSyncOut           = get_int(j, "midiSyncOut", p.midiSyncOut);
+    p.midiSendProgramChange = get_bool(j, "midiSendProgramChange", p.midiSendProgramChange);
+    { auto it = j.find("midiInputChannels");
+      if (it != j.end() && it->is_array())
+          for (size_t t = 0; t < p.midiInputChannels.size() && t < it->size(); ++t)
+              if ((*it)[t].is_number()) p.midiInputChannels[t] = (*it)[t].get<int>(); }
+    { auto it = j.find("sequencer");
+      if (it != j.end() && it->is_object()) p.sequencer = detail::parse_sequencer(*it); }
+    return p;
+}
+
+inline InstrumentPreset parse_instrument_preset(const json& j) {
+    InstrumentPreset ip;
+    ip.version = detail::get_int(j, "version", ip.version);
+    auto it = j.find("instrument");
+    if (it != j.end() && it->is_object()) ip.instrument = detail::parse_instrument(*it, ip.instrument.id);
+    auto tr = j.find("tableRows");
+    if (tr != j.end() && tr->is_array()) {
+        std::vector<TableRow> rows;
+        for (const auto& e : *tr) rows.push_back(detail::parse_table_row(e));
+        ip.tableRows = std::move(rows);
+    }
+    return ip;
+}
+
+// ─── migrate + normalize (mirror FileController.decodeAndMigrate) ────────────────────────────────
+
+// Repair, don't reject: truncate over-long pools, pad short ones from a default Project. Returns
+// true if anything changed. Mirrors FileController.normalizeProject.
+inline bool normalize_project(Project& p) {
+    if ((int)p.phrases.size() == POOL_PHRASES && (int)p.chains.size() == POOL_CHAINS &&
+        (int)p.tracks.size() == POOL_TRACKS && (int)p.instruments.size() == POOL_INSTRUMENTS &&
+        (int)p.tables.size() == POOL_TABLES && (int)p.grooves.size() == POOL_GROOVES &&
+        (int)p.eqPresets.size() == POOL_EQPRESETS && (int)p.scales.size() == POOL_SCALES) {
+        return false;
+    }
+    Project d = make_default_project();
+    auto fix = [](auto& pool, auto& def, int n) {
+        std::decay_t<decltype(pool)> out;
+        out.reserve(n);
+        for (int i = 0; i < n; ++i) out.push_back(i < (int)pool.size() ? pool[i] : def[i]);
+        pool = std::move(out);
+    };
+    fix(p.phrases,     d.phrases,     POOL_PHRASES);
+    fix(p.chains,      d.chains,      POOL_CHAINS);
+    fix(p.tracks,      d.tracks,      POOL_TRACKS);
+    fix(p.instruments, d.instruments, POOL_INSTRUMENTS);
+    fix(p.tables,      d.tables,      POOL_TABLES);
+    fix(p.grooves,     d.grooves,     POOL_GROOVES);
+    fix(p.eqPresets,   d.eqPresets,   POOL_EQPRESETS);
+    fix(p.scales,      d.scales,      POOL_SCALES);
+    return true;
+}
+
+// Version 0 → 1: table rows with volume 0xFF meant "full" under the old scheme; the new scheme uses
+// -1 for "no change". Mirrors FileController.migrateProject.
+inline void migrate_project(Project& p) {
+    if (p.version < 1) {
+        for (auto& t : p.tables)
+            for (auto& r : t.rows)
+                if (r.volume == 0xFF) r.volume = -1;
+        p.version = 1;
+    }
+}
+
+// The full loader tail: normalize pools, then migrate. (decode is the caller's json::parse.)
+inline void normalize_and_migrate(Project& p) {
+    normalize_project(p);
+    migrate_project(p);
+}
+
+// ─── writer ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How a document is laid out. The SCHEMA is identical either way — same keys, same order, same
+ * omission rules — so this decides nothing a reader can observe, and both forms load everywhere.
+ *
+ * ⚠️ THERE IS NO DEFAULT, DELIBERATELY. The two files this writes want opposite things and the
+ * reason is size and audience, not taste:
+ *   * MINIFIED — the .ptp/.pti. Autosave rewrites a project every 3 s and layout was 82 % of it;
+ *     78 KB instead of 443 KB is flash wear on a device whose storage is the part that wears out.
+ *     Nobody reads 78 KB of integer arrays, so there is nothing to make readable.
+ *   * PRETTY — the .ptt. A theme is ~400 bytes, written when the user presses save, and it is the
+ *     one file here a person might open, hand-edit or hand to someone else. Its byte-golden is also
+ *     kotlinx's, which is what lets it catch a drift in ours (see theme_io.h).
+ * A third writer has to pick a side rather than inherit whichever one was written first.
+ */
+enum class JsonLayout { Minified, Pretty };
+
+class JsonWriter {
+public:
+    std::string out;
+
+    explicit JsonWriter(JsonLayout layout) : pretty_(layout == JsonLayout::Pretty) {}
+
+    void begin_object() { out += '{'; stack_.push_back(true); ++depth_; }
+    void end_object()   { close('}'); }
+    void begin_array()  { out += '['; stack_.push_back(true); ++depth_; }
+    void end_array()    { close(']'); }
+
+    // In an object: emit the separator + `"key":` prefix (`"key": ` when pretty). Follow with a
+    // value_* call or a nested begin_object/begin_array.
+    void key(const char* k) {
+        separator();
+        out += '"'; escape_into(k); out += pretty_ ? "\": " : "\":";
+    }
+    // In an array: emit the separator before an element value.
+    void element() { separator(); }
+
+    void value_int(long long v)          { out += std::to_string(v); }
+    void value_bool(bool b)              { out += b ? "true" : "false"; }
+    void value_string(const std::string& s) { out += '"'; escape_into(s.c_str(), s.size()); out += '"'; }
+
+    void field_int(const char* k, long long v)          { key(k); value_int(v); }
+    void field_bool(const char* k, bool v)              { key(k); value_bool(v); }
+    void field_string(const char* k, const std::string& v) { key(k); value_string(v); }
+
+private:
+    std::vector<bool> stack_;  // per-open-container: still empty?  (true = no members/elements yet)
+    int depth_ = 0;
+    bool pretty_;
+
+    // A comma before every member/element except the first one in its container, and — only when
+    // pretty — the newline + indent that follows it. Together with key()'s colon these are the ONLY
+    // places layout is emitted, which is what makes the minified form contain no whitespace at all.
+    void separator() {
+        if (!stack_.back()) out += ',';
+        stack_.back() = false;
+        newline_indent();
+    }
+    // An empty container stays `{}` / `[]` on one line, with or without pretty-printing.
+    void close(char brace) {
+        const bool had = !stack_.back();
+        stack_.pop_back();
+        --depth_;
+        if (had) newline_indent();
+        out += brace;
+    }
+    void newline_indent() {
+        if (!pretty_) return;
+        out += '\n';
+        out.append((size_t)depth_ * 4, ' ');
+    }
+
+    void escape_into(const char* s) { escape_into(s, std::char_traits<char>::length(s)); }
+    void escape_into(const char* s, size_t n) {
+        for (size_t i = 0; i < n; ++i) {
+            unsigned char c = (unsigned char)s[i];
+            switch (c) {
+                case '"':  out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\b': out += "\\b";  break;
+                case '\t': out += "\\t";  break;
+                case '\n': out += "\\n";  break;
+                case '\f': out += "\\f";  break;
+                case '\r': out += "\\r";  break;
+                default:
+                    if (c < 0x20) { char buf[8]; std::snprintf(buf, sizeof buf, "\\u%04x", c); out += buf; }
+                    else out += (char)c;  // pass UTF-8 / printable ASCII through, like kotlinx
+            }
+        }
+    }
+};
+
+namespace detail {
+
+inline void emit_note(JsonWriter& w, const Note& n) {
+    w.begin_object();
+    w.field_int("pitch",  n.pitch);
+    w.field_int("octave", n.octave);
+    w.end_object();
+}
+
+inline void emit_phrase_step(JsonWriter& w, const PhraseStep& s) {
+    w.begin_object();
+    if (s.note != Note::EMPTY())  { w.key("note"); emit_note(w, s.note); }
+    if (s.instrument != 0x00)     w.field_int("instrument", s.instrument);
+    if (s.volume     != 0x7F)     w.field_int("volume",     s.volume);
+    if (s.fx1Type  != 0x00)       w.field_int("fx1Type",  s.fx1Type);
+    if (s.fx1Value != 0x00)       w.field_int("fx1Value", s.fx1Value);
+    if (s.fx2Type  != 0x00)       w.field_int("fx2Type",  s.fx2Type);
+    if (s.fx2Value != 0x00)       w.field_int("fx2Value", s.fx2Value);
+    if (s.fx3Type  != 0x00)       w.field_int("fx3Type",  s.fx3Type);
+    if (s.fx3Value != 0x00)       w.field_int("fx3Value", s.fx3Value);
+    w.end_object();
+}
+
+inline void emit_int_array(JsonWriter& w, const char* key, const std::vector<int>& a) {
+    w.key(key);
+    w.begin_array();
+    for (int v : a) { w.element(); w.value_int(v); }
+    w.end_array();
+}
+
+inline void emit_phrase(JsonWriter& w, const Phrase& p) {
+    w.begin_object();
+    w.field_int("id", p.id);
+    w.key("steps");
+    w.begin_array();
+    for (const auto& s : p.steps) { w.element(); emit_phrase_step(w, s); }
+    w.end_array();
+    w.end_object();
+}
+
+inline void emit_chain(JsonWriter& w, const Chain& c) {
+    w.begin_object();
+    w.field_int("id", c.id);
+    emit_int_array(w, "phraseRefs",      c.phraseRefs);
+    emit_int_array(w, "transposeValues", c.transposeValues);
+    w.end_object();
+}
+
+inline void emit_table_row(JsonWriter& w, const TableRow& r) {
+    w.begin_object();
+    if (r.transpose != 0x00) w.field_int("transpose", r.transpose);
+    if (r.volume    != -1)   w.field_int("volume",    r.volume);
+    if (r.fx1Type  != 0x00)  w.field_int("fx1Type",  r.fx1Type);
+    if (r.fx1Value != 0x00)  w.field_int("fx1Value", r.fx1Value);
+    if (r.fx2Type  != 0x00)  w.field_int("fx2Type",  r.fx2Type);
+    if (r.fx2Value != 0x00)  w.field_int("fx2Value", r.fx2Value);
+    if (r.fx3Type  != 0x00)  w.field_int("fx3Type",  r.fx3Type);
+    if (r.fx3Value != 0x00)  w.field_int("fx3Value", r.fx3Value);
+    w.end_object();
+}
+
+inline void emit_table(JsonWriter& w, const Table& t) {
+    w.begin_object();
+    w.field_int("id", t.id);
+    if (t.name != default_table_name(t.id)) w.field_string("name", t.name);
+    w.key("rows");
+    w.begin_array();
+    for (const auto& r : t.rows) { w.element(); emit_table_row(w, r); }
+    w.end_array();
+    w.end_object();
+}
+
+inline void emit_mod_slot(JsonWriter& w, const ModSlot& m) {
+    w.begin_object();
+    if (m.type != ModType::NONE) w.field_string("type", mod_type_name(m.type));
+    if (m.dest != ModDest::NONE) w.field_string("dest", mod_dest_name(m.dest));
+    if (m.amount      != 0xFF) w.field_int("amount",      m.amount);
+    if (m.attack      != 0x00) w.field_int("attack",      m.attack);
+    if (m.hold        != 0x00) w.field_int("hold",        m.hold);
+    if (m.decay       != 0x00) w.field_int("decay",       m.decay);
+    if (m.sustain     != 0x80) w.field_int("sustain",     m.sustain);
+    if (m.release     != 0x00) w.field_int("release",     m.release);
+    if (m.oscShape    != 0x00) w.field_int("oscShape",    m.oscShape);
+    if (m.lfoTrigMode != 0x00) w.field_int("lfoTrigMode", m.lfoTrigMode);
+    if (m.lfoFreq     != 0x40) w.field_int("lfoFreq",     m.lfoFreq);
+    w.end_object();
+}
+
+inline void emit_groove(JsonWriter& w, const Groove& g) {
+    w.begin_object();
+    w.field_int("id", g.id);
+    emit_int_array(w, "steps", g.steps);
+    w.end_object();
+}
+
+inline void emit_scale(JsonWriter& w, const Scale& s) {
+    w.begin_object();
+    w.field_int("id", s.id);
+    if (!s.name.empty()) w.field_string("name", s.name);
+    // ⏸️ `offset` is emitted the moment it is non-default even though nothing reads it — that is the
+    // point of writing it from the first version (call S3): switching microtuning on later must not
+    // need a migration.
+    if (s.enabled != std::vector<int>(12, 1)) emit_int_array(w, "enabled", s.enabled);
+    if (s.offset  != std::vector<int>(12, 0)) emit_int_array(w, "offset",  s.offset);
+    w.end_object();
+}
+
+inline void emit_eq_band(JsonWriter& w, const EqBand& b) {
+    w.begin_object();
+    if (b.type != 0)    w.field_int("type", b.type);
+    if (b.freq != 0x80) w.field_int("freq", b.freq);
+    if (b.gain != 120)  w.field_int("gain", b.gain);
+    if (b.q    != 0x80) w.field_int("q",    b.q);
+    w.end_object();
+}
+
+inline void emit_eq_preset(JsonWriter& w, const EqPreset& e) {
+    w.begin_object();
+    w.field_int("id", e.id);
+    w.key("bands");
+    w.begin_array();
+    for (const auto& b : e.bands) { w.element(); emit_eq_band(w, b); }
+    w.end_array();
+    w.end_object();
+}
+
+inline bool phrase_step_is_default(const PhraseStep& s) {
+    return s.note == Note::EMPTY() && s.instrument == 0x00 && s.volume == 0x7F &&
+           s.fx1Type == 0x00 && s.fx1Value == 0x00 &&
+           s.fx2Type == 0x00 && s.fx2Value == 0x00 &&
+           s.fx3Type == 0x00 && s.fx3Value == 0x00;
+}
+
+inline bool sequencer_pattern_is_default(const SequencerPattern& p) {
+    if (p.length != SEQUENCER_MAX_STEPS) return false;
+    for (const auto& s : p.steps)
+        if (!phrase_step_is_default(s)) return false;
+    for (const auto c : p.conditions)
+        if (c != 0) return false;
+    for (const auto w : p.wait_ppqn)
+        if (w != 0) return false;
+    for (const auto t : p.trigless)
+        if (t != 0) return false;
+    return true;
+}
+
+inline bool sequencer_is_default(const SequencerData& d) {
+    if (!d.scenes.empty()) return false;
+    for (const auto& t : d.tracks) {
+        if (t.step_duration_multiplier != 1) return false;
+        if (t.direction != SequencerDirection::FORWARD) return false;
+        if (t.shuffle != 0) return false;
+        for (const auto& b : t.banks)
+            for (const auto& p : b.patterns)
+                if (!sequencer_pattern_is_default(p)) return false;
+    }
+    return true;
+}
+
+inline void emit_sequencer_pattern(JsonWriter& w, int bank, int pattern, const SequencerPattern& p) {
+    w.begin_object();
+    w.field_int("bank", bank);
+    w.field_int("pattern", pattern);
+    if (p.length != SEQUENCER_MAX_STEPS) w.field_int("length", p.length);
+    w.key("steps");
+    w.begin_array();
+    for (const auto& s : p.steps) { w.element(); emit_phrase_step(w, s); }
+    w.end_array();
+    bool hasConditions = false;
+    for (const auto c : p.conditions) if (c != 0) { hasConditions = true; break; }
+    if (hasConditions) {
+        w.key("conditions");
+        w.begin_array();
+        for (const auto c : p.conditions) { w.element(); w.value_int(c); }
+        w.end_array();
+    }
+    bool hasWait = false;
+    for (const auto v : p.wait_ppqn) if (v != 0) { hasWait = true; break; }
+    if (hasWait) {
+        w.key("waitPPQN");
+        w.begin_array();
+        for (const auto v : p.wait_ppqn) { w.element(); w.value_int(v); }
+        w.end_array();
+    }
+    bool hasTrigless = false;
+    for (const auto v : p.trigless) if (v != 0) { hasTrigless = true; break; }
+    if (hasTrigless) {
+        w.key("trigless");
+        w.begin_array();
+        for (const auto v : p.trigless) { w.element(); w.value_bool(v != 0); }
+        w.end_array();
+    }
+    w.end_object();
+}
+
+inline void emit_sequencer(JsonWriter& w, const SequencerData& d) {
+    w.begin_object();
+    w.field_int("version", 2);
+    w.key("tracks");
+    w.begin_array();
+    for (const auto& t : d.tracks) {
+        w.element();
+        w.begin_object();
+        if (t.step_duration_multiplier != 1)
+            w.field_int("stepDurationMultiplier", t.step_duration_multiplier);
+        if (t.direction != SequencerDirection::FORWARD)
+            w.field_int("direction", static_cast<int>(t.direction));
+        if (t.shuffle != 0)
+            w.field_int("shuffle", t.shuffle);
+        w.key("patterns");
+        w.begin_array();
+        for (int bank = 0; bank < SEQUENCER_BANKS; ++bank)
+            for (int pattern = 0; pattern < SEQUENCER_PATTERNS; ++pattern) {
+                const auto& p = t.banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pattern)];
+                if (sequencer_pattern_is_default(p)) continue;
+                w.element();
+                emit_sequencer_pattern(w, bank, pattern, p);
+            }
+        w.end_array();
+        w.end_object();
+    }
+    w.end_array();
+    if (!d.scenes.empty()) {
+        w.key("scenes");
+        w.begin_array();
+        for (const auto& scene : d.scenes) {
+            w.element();
+            w.begin_object();
+            w.key("tracks");
+            w.begin_array();
+            for (const auto& ref : scene.tracks) {
+                w.element();
+                w.begin_object();
+                if (ref.active) w.field_bool("active", true);
+                if (ref.bank != 0) w.field_int("bank", ref.bank);
+                if (ref.pattern != 0) w.field_int("pattern", ref.pattern);
+                w.end_object();
+            }
+            w.end_array();
+            w.end_object();
+        }
+        w.end_array();
+    }
+    w.end_object();
+}
+
+inline void emit_track(JsonWriter& w, const Track& t) {
+    w.begin_object();
+    w.field_int("id", t.id);
+    if (!t.chainRefs.empty()) {
+        w.key("chainRefs");
+        w.begin_array();
+        for (int v : t.chainRefs) { w.element(); w.value_int(v); }
+        w.end_array();
+    }
+    if (t.volume != 0xFF) w.field_int("volume", t.volume);
+    if (t.mute)           w.field_bool("mute", t.mute);
+    if (t.solo)           w.field_bool("solo", t.solo);
+    w.end_object();
+}
+
+inline void emit_sf_overrides(JsonWriter& w, const SFOverrides& s) {
+    w.begin_object();
+    if (s.ampAttack  != -1) w.field_int("ampAttack",  s.ampAttack);
+    if (s.ampDecay   != -1) w.field_int("ampDecay",   s.ampDecay);
+    if (s.ampSustain != -1) w.field_int("ampSustain", s.ampSustain);
+    if (s.ampRelease != -1) w.field_int("ampRelease", s.ampRelease);
+    if (s.filterCut  != -1) w.field_int("filterCut",  s.filterCut);
+    if (s.filterRes  != -1) w.field_int("filterRes",  s.filterRes);
+    w.end_object();
+}
+
+inline void emit_instrument(JsonWriter& w, const Instrument& i) {
+    w.begin_object();
+    w.field_int("id", i.id);
+    if (i.name != default_instrument_name(i.id)) w.field_string("name", i.name);
+    if (i.sampleId != -1)   w.field_int("sampleId", i.sampleId);
+    if (i.volume != 0xFF)   w.field_int("volume", i.volume);
+    if (i.pan != 0x80)      w.field_int("pan", i.pan);
+    if (i.root != Note::C4()) { w.key("root"); emit_note(w, i.root); }
+    if (i.detune != 0x80)   w.field_int("detune", i.detune);
+    if (i.drive != 0x00)    w.field_int("drive", i.drive);
+    if (i.crush != 0x0)     w.field_int("crush", i.crush);
+    if (i.downsample != 0x0) w.field_int("downsample", i.downsample);
+    if (i.filterType != "off") w.field_string("filterType", i.filterType);
+    if (i.filterCut != 0x00) w.field_int("filterCut", i.filterCut);
+    if (i.filterRes != 0x00) w.field_int("filterRes", i.filterRes);
+    if (i.sampleStart != 0x00) w.field_int("sampleStart", i.sampleStart);
+    if (i.sampleEnd != 0xFF) w.field_int("sampleEnd", i.sampleEnd);
+    if (i.reverse)          w.field_bool("reverse", i.reverse);
+    if (i.loopMode != "off") w.field_string("loopMode", i.loopMode);
+    if (i.loopStart != 0x00) w.field_int("loopStart", i.loopStart);
+    if (i.loopEnd != 0xFF)  w.field_int("loopEnd", i.loopEnd);
+    if (i.sampleFilePath)   w.field_string("sampleFilePath", *i.sampleFilePath);
+    if (i.tableId != -1)    w.field_int("tableId", i.tableId);
+    if (i.tableTicRate != 0x06) w.field_int("tableTicRate", i.tableTicRate);
+    w.key("modSlots");
+    w.begin_array();
+    for (const auto& m : i.modSlots) { w.element(); emit_mod_slot(w, m); }
+    w.end_array();
+    if (i.instrumentType != InstrumentType::SAMPLER) w.field_string("instrumentType", instrument_type_name(i.instrumentType));
+    if (i.soundfontPath)    w.field_string("soundfontPath", *i.soundfontPath);
+    if (i.sfBank != 0)      w.field_int("sfBank", i.sfBank);
+    if (i.sfPreset != 0)    w.field_int("sfPreset", i.sfPreset);
+    if (i.sfOverrides != SFOverrides{}) { w.key("sfOverrides"); emit_sf_overrides(w, i.sfOverrides); }
+    if (i.reverbSend != 0x00) w.field_int("reverbSend", i.reverbSend);
+    if (i.delaySend != 0x00) w.field_int("delaySend", i.delaySend);
+    if (i.eqSlot != -1)     w.field_int("eqSlot", i.eqSlot);
+    if (i.slicingMode != 0) w.field_int("slicingMode", i.slicingMode);
+    // ⚠️ Defaults to TRUE, so the guard is inverted — the field appears only once turned OFF, which is
+    // what keeps a project that has never seen scales byte-identical.
+    if (!i.transposeEnabled) w.field_bool("transposeEnabled", i.transposeEnabled);
+    if (!i.sliceMarkers.empty()) {
+        w.key("sliceMarkers");
+        w.begin_array();
+        for (int64_t v : i.sliceMarkers) { w.element(); w.value_int(v); }
+        w.end_array();
+    }
+    // ── EXTERNAL (MIDI plan §7) — appended at the tail, every field default-guarded ───────────────
+    // ⚠️ Guarded, and that is what keeps the eight ptroundtrip goldens byte-identical: an instrument
+    // that is not EXTERNAL holds every default here and so emits not one new byte. `midiCC` is emitted
+    // whole-or-not-at-all (unlike modSlots, which always emits) for the same reason — four "{}"s in
+    // every instrument of every project would move ~4 KB of bytes in files nothing has changed.
+    if (i.midiChannel != 0)  w.field_int("midiChannel", i.midiChannel);
+    if (i.midiBank != -1)    w.field_int("midiBank", i.midiBank);
+    if (i.midiProgram != -1) w.field_int("midiProgram", i.midiProgram);
+    if (i.midiLen != 0)      w.field_int("midiLen", i.midiLen);
+    if (i.midiCC != std::vector<MidiCcSlot>(MIDI_CC_SLOTS)) {
+        w.key("midiCC");
+        w.begin_array();
+        for (const auto& s : i.midiCC) {
+            w.element();
+            w.begin_object();
+            if (s.cc != -1)    w.field_int("cc", s.cc);
+            if (s.value != -1) w.field_int("value", s.value);
+            w.end_object();
+        }
+        w.end_array();
+    }
+    w.end_object();
+}
+
+template <class T, class F>
+inline void emit_pool(JsonWriter& w, const char* key, const std::vector<T>& pool, F&& emit_elem) {
+    w.key(key);
+    w.begin_array();
+    for (const auto& e : pool) { w.element(); emit_elem(w, e); }
+    w.end_array();
+}
+
+}  // namespace detail
+
+// Serialize a Project to the exact bytes kotlinx.serialization would write (no trailing newline).
+inline std::string serialize_project(const Project& p) {
+    using namespace detail;
+    JsonWriter w{JsonLayout::Minified};
+    w.begin_object();
+    if (p.version != 0)         w.field_int("version", p.version);
+    if (p.name != "UNTITLED")   w.field_string("name", p.name);
+    if (p.tempo != 128)         w.field_int("tempo", p.tempo);
+    if (p.transpose != 0)       w.field_int("transpose", p.transpose);
+    if (p.masterVolume != 0xFF) w.field_int("masterVolume", p.masterVolume);
+    if (p.ottDepth != 0)        w.field_int("ottDepth", p.ottDepth);
+    if (p.masterBusFx != 0)     w.field_int("masterBusFx", p.masterBusFx);
+    if (p.dustDepth != 0)       w.field_int("dustDepth", p.dustDepth);
+    if (p.limiterPreGain != 0)  w.field_int("limiterPreGain", p.limiterPreGain);
+    emit_pool(w, "eqPresets", p.eqPresets, emit_eq_preset);
+    if (p.reverbFeedback != 0x60) w.field_int("reverbFeedback", p.reverbFeedback);
+    if (p.reverbDamp != 0x80)     w.field_int("reverbDamp", p.reverbDamp);
+    if (p.reverbWet != 0x80)      w.field_int("reverbWet", p.reverbWet);
+    if (p.reverbInputEq != -1)    w.field_int("reverbInputEq", p.reverbInputEq);
+    if (p.reverbPreDelay != 0)    w.field_int("reverbPreDelay", p.reverbPreDelay);
+    if (p.reverbWidth != 0x80)    w.field_int("reverbWidth", p.reverbWidth);
+    if (p.reverbMod != 0x10)      w.field_int("reverbMod", p.reverbMod);
+    if (p.reverbAlgo != 0)        w.field_int("reverbAlgo", p.reverbAlgo);
+    if (p.reverbDecay != 0x60)    w.field_int("reverbDecay", p.reverbDecay);
+    if (p.reverbDensity != 0x99)  w.field_int("reverbDensity", p.reverbDensity);
+    if (p.delayTime != 0x40)      w.field_int("delayTime", p.delayTime);
+    if (p.delaySync)              w.field_bool("delaySync", p.delaySync);
+    if (p.delayFeedback != 0x60)  w.field_int("delayFeedback", p.delayFeedback);
+    if (p.delayWet != 0x80)       w.field_int("delayWet", p.delayWet);
+    if (p.delayReverbSend != 0)   w.field_int("delayReverbSend", p.delayReverbSend);
+    if (p.delayInputEq != -1)     w.field_int("delayInputEq", p.delayInputEq);
+    if (p.delayPong)              w.field_bool("delayPong", p.delayPong);
+    if (p.delayTone != 0xFF)      w.field_int("delayTone", p.delayTone);
+    if (p.delayWobble != 0)       w.field_int("delayWobble", p.delayWobble);
+    if (p.reverbMute)             w.field_bool("reverbMute", p.reverbMute);
+    if (p.reverbSolo)             w.field_bool("reverbSolo", p.reverbSolo);
+    if (p.delayMute)              w.field_bool("delayMute", p.delayMute);
+    if (p.delaySolo)              w.field_bool("delaySolo", p.delaySolo);
+    if (p.masterEqSlot != -1)     w.field_int("masterEqSlot", p.masterEqSlot);
+    emit_pool(w, "phrases",     p.phrases,     emit_phrase);
+    emit_pool(w, "chains",      p.chains,      emit_chain);
+    emit_pool(w, "tracks",      p.tracks,      emit_track);
+    emit_pool(w, "instruments", p.instruments, emit_instrument);
+    emit_pool(w, "tables",      p.tables,      emit_table);
+    emit_pool(w, "grooves",     p.grooves,     emit_groove);
+    // ⚠️ THE SCALE POOL IS OMITTED WHOLE WHEN NOTHING HAS BEEN AUTHORED, where every pool above is
+    // always written. That is what keeps this release's bytes identical to the last one's for a song
+    // that has never opened the SCALE screen — sixteen `{"id":n}` objects would move every golden
+    // `.ptp` in the tree, for a pool whose default carries no information. Slot 00 all-enabled IS the
+    // chromatic scale, so an absent pool and a default pool mean the same thing to every reader.
+    {
+        bool anyAuthored = (int)p.scales.size() != POOL_SCALES;
+        for (const Scale& s : p.scales)
+            if (!s.name.empty() || s.enabled != std::vector<int>(12, 1) ||
+                s.offset != std::vector<int>(12, 0)) { anyAuthored = true; break; }
+        if (anyAuthored) emit_pool(w, "scales", p.scales, emit_scale);
+    }
+    if (p.scaleKey != 0) w.field_int("scaleKey", p.scaleKey);
+    // MIDI, the project's half (plan §7). ⚠️ `midiSendProgramChange` defaults to TRUE, so its guard is
+    // the inverted one — the field appears only when the user has turned it OFF.
+    if (p.midiSyncOut != 0)          w.field_int("midiSyncOut", p.midiSyncOut);
+    if (!p.midiSendProgramChange)    w.field_bool("midiSendProgramChange", p.midiSendProgramChange);
+    if (p.midiInputChannels != std::vector<int>(8, -1)) {
+        w.key("midiInputChannels");
+        w.begin_array();
+        for (int c : p.midiInputChannels) { w.element(); w.value_int(c); }
+        w.end_array();
+    }
+    // The new handheld sequencer is appended so all legacy .ptp bytes remain unchanged when its
+    // data has never been authored. Patterns are stored sparsely inside the sequencer object.
+    if (!detail::sequencer_is_default(p.sequencer)) {
+        w.key("sequencer");
+        detail::emit_sequencer(w, p.sequencer);
+    }
+    w.end_object();
+    return std::move(w.out);
+}
+
+// Serialize an InstrumentPreset (.pti) to kotlinx-exact bytes.
+inline std::string serialize_instrument_preset(const InstrumentPreset& ip) {
+    using namespace detail;
+    JsonWriter w{JsonLayout::Minified};
+    w.begin_object();
+    if (ip.version != 1) w.field_int("version", ip.version);
+    w.key("instrument");
+    emit_instrument(w, ip.instrument);
+    if (ip.tableRows) {
+        w.key("tableRows");
+        w.begin_array();
+        for (const auto& r : *ip.tableRows) { w.element(); emit_table_row(w, r); }
+        w.end_array();
+    }
+    w.end_object();
+    return std::move(w.out);
+}
+
+}  // namespace songcore
+
+#endif  // SPRITESTEP_SONGCORE_PROJECT_IO_H

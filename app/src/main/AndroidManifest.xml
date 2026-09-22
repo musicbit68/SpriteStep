@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        ⚠️ **NO STORAGE PERMISSION OF ANY KIND, AND THAT IS THE DESIGN.** The app reaches the user's
+        projects and samples through the Storage Access Framework: the user grants a folder from the
+        system picker (ADD FOLDER… in the browser's roots directory), the grant is persisted with
+        `takePersistableUriPermission`, and `shell/saf-filesystem.cpp` is the whole of the access.
+        A granted tree needs no `uses-permission` line, which is precisely the property SAF is for.
+
+        Its own three files (`settings.json`, `template.ptp`, `autosave.ptp`) are read during the
+        native boot, before any picker can have run, and live in `filesDir` — app-private, permission
+        -free and unrevokable.
+
+        ⚠️ Adding any of the four back (READ_/WRITE_EXTERNAL_STORAGE, READ_MEDIA_AUDIO,
+        MANAGE_EXTERNAL_STORAGE) would not make anything work: nothing in the tree calls MediaStore,
+        and nothing constructs a media-tree `StdFileSystem` any more. It would only re-open the
+        F-Droid review finding this migration answers.
+    -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+        EXTERNAL MIDI out (MIDI plan phase B2b). No PERMISSION is needed: USB and virtual (app-to-app)
+        MIDI through MidiManager are unguarded — only BLE MIDI would want BLUETOOTH_SCAN, and the plan
+        defers BLE (§9). ⚠️ required="false" is load-bearing: `true` would hide the app on the Play
+        Store from every device without a MIDI stack, which is most phones, to gate one optional
+        instrument type. `MidiOutManager` already answers "0 devices" when the service is absent, and
+        the MIDI screen's OUTPUT row already draws that as `OFF  NO PORTS`.
+    -->
+    <uses-feature android:name="android.software.midi" android:required="false" />
+
+    <!--
+      No android:largeHeap. It raises the ART heap ceiling, and this app barely uses one: the whole
+      Java heap is the 32 UI click clips (3.5 MB) plus a 78 KB dex, while a loaded project with eight
+      tracks of samples is ~99 MB of NATIVE heap — the engine, the decoders and tsf — which largeHeap
+      cannot raise by a byte. Measured on the release build rather than assumed.
+    -->
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Pockettracker">
+        <!-- MainActivity is now an SDLActivity subclass (convergence Phase E). launchMode=singleTask
+             is SDL's recommendation: it stops a relaunch from spawning a second native SDL instance,
+             and configChanges keeps a rotation from restarting the native thread mid-session. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Pockettracker.Splash"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

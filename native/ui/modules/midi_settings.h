@@ -1,0 +1,138 @@
+#pragma once
+
+// ─── MIDI ────────────────────────────────────────────────────────────────────────────────────────
+//
+// The screen the MIDI plan's §8.1 asks for, and the increment (B4.3) that finally makes the EXTERNAL
+// bus reachable without an environment variable. B4.1 gave the instrument a TYPE, B4.2 gave it a patch
+// page — but the CABLE was still picked by `SPRITESTEP_MIDI_OUT`, which means the feature shipped in
+// a state where nobody could reach it. This is the row that ends that.
+//
+// It has NO Kotlin twin and never will: MIDI out did not exist before the port. So — like `ptmidi` and
+// unlike every other module here — there is no golden to compare against and no "does it still match
+// Kotlin" question to ask. What can be checked is the same thing `ptdispatch` checks everywhere else:
+// that the cursor reaches every row, that each row's context is the one its value needs, and that a
+// press changes what it claims to change.
+//
+// ── ⚠️ WHAT THIS MODULE DOES NOT OWN ─────────────────────────────────────────────────────────────
+//
+// **It never opens, closes or writes to a port.** It edits an index into a list of names it was HANDED,
+// and the dispatcher — the only place that can reach `songcore::IMidiOut` — turns a changed index into
+// `close()` + `open()`. That is `settings_editor.h`'s rule ("the module edits indices and flags; it
+// does not know what a layout mode is") applied to the one seam where getting it wrong would be worse
+// than untidy: enumerating devices means asking the OS, and pt-ui is the layer with no OS in it.
+//
+// It is also why OUTPUT's displayed value is `deviceNames[deviceIndex]` and not the setting string.
+// ⭐ **The row shows what is OPEN, not what was WANTED.** A saved device that is not plugged in today
+// resolves to index 0 and the row reads OFF — which is the truth, where painting the remembered name
+// would be a screen quietly lying about whether a cable exists.
+
+#include <string>
+#include <vector>
+
+#include "songcore/model.h"
+#include "ui/canvas.h"
+#include "ui/cursor.h"
+#include "ui/modules/settings_editor.h"   // SettingsValues — OUTPUT and OFFSET live there (§7)
+#include "ui/platform_caps.h"
+#include "ui/settings_row_layout.h"
+#include "ui/theme.h"
+
+namespace pt::ui {
+
+struct MidiState {
+    /** PROG CHG lives on the project — it is what the SONG means, so it travels in the .ptp. */
+    const songcore::Project& project;
+
+    /** OUTPUT and OFFSET live in the settings — they describe this machine's cable. */
+    const SettingsValues& settings;
+
+    /**
+     * The port lists, ALWAYS with "OFF" at index 0 — the dispatcher builds them by asking the platform
+     * and prepending that entry, so the module never has to special-case "no device" as a separate
+     * state. Empty is impossible; a machine with no ports still gets `{"OFF"}`, which is where
+     * `AppState` starts them.
+     *
+     * ⚠️ IN AND OUT ARE TWO SEPARATE LISTS AND MUST NOT BE COLLAPSED INTO ONE. A machine's MIDI inputs
+     * and outputs are different sets, indexed independently, and a port that is both (loopMIDI, a
+     * keyboard with a thru) sits at a different index in each. `midi-out-base` and `midi-in-base` are
+     * separate enumerators for that reason, and this is the same fact reaching the screen.
+     *
+     * By reference like `project` and `settings` above, and for the same reason: this struct is
+     * rebuilt on every frame the screen is up AND on every button press, so a by-value list is two
+     * vector allocations plus one per port name, at 60 Hz, for data the module only reads.
+     */
+    const std::vector<std::string>& deviceNames;
+    const std::vector<std::string>& inDeviceNames;
+
+    /**
+     * What the OFFSET row uses while AUTO is on: the output latency the audio device reported at
+     * boot, in milliseconds. A platform fact, so it arrives the same way the port lists above do —
+     * pt-ui has no audio backend to ask.
+     */
+    int autoOffsetMs = 0;
+
+    int cursorRow    = 0;   // a MidiRow
+    /**
+     * 1 on every row but IN CH, where it is 1..`MIDI_IN_MAP_COLUMNS` — one per track. Column 0 is the
+     * row LABEL on every row and is unreachable, as on PROJECT.
+     */
+    int cursorColumn = 1;
+
+    /** Indices into the two lists above. */
+    int deviceIndex   = 0;
+    int inDeviceIndex = 0;
+
+    /** A one-shot readout under the actions — "PANIC SENT", "TEST SENT", "NO PORT". */
+    std::string statusText{};
+
+    PlatformCaps caps{};
+    Theme        theme = theme_classic();
+};
+
+/**
+ * The offset the cable is actually being sent with — the derived one under AUTO, the dialled one
+ * otherwise. Clamped to the row's range so a device holding more than the row can display still
+ * yields a number this screen can paint.
+ *
+ * ⭐ Every reader goes through here: the row, the cursor context, the boot push and the apply. The
+ * alternative is four sites each remembering to check the flag, which is the arrangement that only
+ * has to be forgotten once to leave the value round-tripping correctly and reaching nobody.
+ */
+inline int midi_offset_in_force(const SettingsValues& s, int autoOffsetMs) {
+    if (!s.midiOffsetAuto) return s.midiOffsetMs;
+    return autoOffsetMs < -99 ? -99 : (autoOffsetMs > 99 ? 99 : autoOffsetMs);
+}
+
+struct MidiInputResult {
+    bool projectModified = false;   // PROG CHG and IN CH — the rows that dirty the SONG
+    bool deviceChanged   = false;   // OUTPUT — the dispatcher must now (re)open a port
+    bool inDeviceChanged = false;   // INPUT  — likewise, and the sink goes with it (E2's rule)
+    bool offsetChanged   = false;   // OFFSET — the dispatcher must push it to the consumer
+    bool syncChanged     = false;   // SYNC   — likewise; and turning it OFF owes the device a Stop
+};
+
+class MidiModule {
+  public:
+    static constexpr int WIDTH  = 510;
+    static constexpr int HEIGHT = 392;
+
+    void draw(Canvas& c, int x, int y, const MidiState& s) const;
+
+    CursorContext cursor_context(const MidiState& s) const;
+
+    /**
+     * Writes into BOTH subjects, because this screen genuinely edits both: PROG CHG is the project's
+     * and OUTPUT/OFFSET are the settings'. Splitting it into two calls would only move the decision of
+     * which one a row belongs to out of the file that knows.
+     *
+     * PANIC and TEST are absent: they are plain-A ACTIONS and reach hardware, so they live in the
+     * dispatcher exactly as SAVE / LOAD / NEW do on PROJECT.
+     */
+    MidiInputResult handle_input(songcore::Project& project, SettingsValues& settings,
+                                 int cursor_row, int cursor_column,
+                                 const std::vector<std::string>& device_names,
+                                 const std::vector<std::string>& in_device_names,
+                                 const InputAction& action) const;
+};
+
+}  // namespace pt::ui
