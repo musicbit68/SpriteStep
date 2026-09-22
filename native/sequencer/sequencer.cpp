@@ -271,17 +271,12 @@ std::optional<ScheduledStep> Sequencer::playhead_at(int track, int64_t frame) co
 }
 
 int Sequencer::playing_scene_at(int64_t frame) const {
-    if (!runtime_.playing) return -1;
-    int scene = -1;
-    int64_t latest = -1;
-    for (int t = 0; t < TRACK_COUNT; ++t) {
-        const auto ph = playhead_at(t, frame);
-        if (ph && ph->frame >= latest) {
-            latest = ph->frame;
-            scene = ph->scene;
-        }
-    }
-    return scene;
+    (void)frame;
+    // The runtime owns the scene transition. Do not infer the scene from the last scheduled
+    // musical event: a scene can contain an empty track/pattern, or there can be a gap after the
+    // last event while the scene is still active. ARRANGE therefore needs the authoritative runtime
+    // scene rather than an event-history guess.
+    return runtime_.playing ? runtime_.scene : -1;
 }
 
 const TrackCue& Sequencer::cue_state(int track) const {

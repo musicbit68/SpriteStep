@@ -63,6 +63,14 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
 
     c.draw_text("ARRANGE", x + LEFT, y + BANK_LABEL_Y, t.textTitle, CHAR_SPACING, FONT_SCALE);
 
+    // The header gives the transport an explicit scene readout in addition to the inverted column
+    // marker. This is especially useful when the current scene is off the visible page.
+    if (s.playingScene >= 0) {
+        const std::string sceneLabel = "SC" + songcore::hex2(s.playingScene);
+        c.fill_rect(x + WIDTH - 58, y + 3, 52, 25, t.textValue);
+        c.draw_text(sceneLabel, x + WIDTH - 53, y + 8, t.background, CHAR_SPACING, FONT_SCALE);
+    }
+
     // Scene numbers are deliberately shown as a compact 0..F header.  The active cursor column
     // uses the same header marker as the other grid editors, while playback is a small triangle in
     // the gap before the currently playing scene.

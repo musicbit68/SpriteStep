@@ -1290,17 +1290,34 @@ class SongcoreHost {
         sync_clock();
         if (handheldAdapter_.playing()) {
             PlaybackPosition pos;
+            const auto& runtime = handheldAdapter_.sequencer().runtime();
+
+            // Always report the current scene/bank/pattern from the runtime, even when the current
+            // pattern has no scheduled note/FX event. The UI needs to know which pattern is playing
+            // independently of whether that pattern happens to contain an event at this instant.
+            // The step fields are then overlaid with the actual sounding event when one exists.
+            if (trackId >= 0 && trackId < songcore::SEQUENCER_TRACKS) {
+                const auto& rt = runtime.tracks[static_cast<size_t>(trackId)];
+                if (rt.active) {
+                    pos.songRow = runtime.scene;
+                    pos.chainId = rt.bank;
+                    pos.chainRow = rt.pattern;
+                    pos.phraseId = rt.pattern;
+                }
+            }
+
             const auto event = handheldAdapter_.sequencer().playhead_at(trackId, seq_.clock());
-            if (!event) return pos;
-            // Reuse the existing UI position carrier for the handheld screens: scene, bank/pattern,
-            // and pattern/step occupy the old song/chain/phrase slots, while PATTERN only consumes
-            // phraseId/phraseStep. Legacy screens are never entered in handheld major-view context.
-            pos.row = event->step;
-            pos.songRow = event->scene;
-            pos.chainId = event->bank;
-            pos.chainRow = event->pattern;
-            pos.phraseId = event->pattern;
-            pos.phraseStep = event->step;
+            if (event) {
+                // Reuse the existing UI position carrier for the handheld screens: scene, bank/pattern,
+                // and pattern/step occupy the old song/chain/phrase slots, while PATTERN consumes
+                // phraseId/phraseStep. Legacy screens are never entered in handheld major-view context.
+                pos.row = event->step;
+                pos.songRow = event->scene;
+                pos.chainId = event->bank;
+                pos.chainRow = event->pattern;
+                pos.phraseId = event->pattern;
+                pos.phraseStep = event->step;
+            }
             return pos;
         }
         return seq_.getPlaybackPosition(trackId);

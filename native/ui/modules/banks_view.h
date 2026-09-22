@@ -19,6 +19,7 @@ struct BanksViewState {
     std::array<sequencer::TrackCue, sequencer::TRACK_COUNT> cues{};
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
     int blinkPhaseMs = 0;
+    bool isPlaying = false;
     int cursorTrack = 0;
     int cursorColumn = 0;
     bool bankSelector = false;

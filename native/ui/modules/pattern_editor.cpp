@@ -246,16 +246,24 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 c.draw_text(value, sx + 2, rowY + 9,
                             cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
             }
-            // FMS-style playback marker: every active step gets a small square, and the
-            // currently sounding step grows slightly.  Use the per-track playhead array so
-            // Pattern View can show all eight independent tracks at once.
+            // FMS-style playback markers. Every step in the active pattern gets a small square,
+            // not only steps containing notes: this makes the transport position visible even during
+            // rests. The actual playhead square grows from 9px to 13px and becomes filled, so the
+            // movement is unmistakable on the RG40XXH's 640x480 display.
             const auto& playhead = s.playheads[static_cast<size_t>(track)];
-            const bool playingStep = playhead.phraseId == pat && playhead.step == step;
-            if (active) {
-                const int marker = playingStep ? 13 : 9;
+            const bool playingStep = s.isPlaying && playhead.phraseId == pat && playhead.step == step;
+            if (playingStep) {
+                constexpr int marker = 13;
                 const int mx = sx + (CELL - 3 - marker) / 2;
                 const int my = rowY + 34 - marker - 3;
-                c.stroke_rect(mx, my, marker, marker, t.textPlayhead, playingStep ? 2 : 1);
+                c.fill_rect(mx, my, marker, marker, t.textPlayhead);
+                c.stroke_rect(mx - 1, my - 1, marker + 2, marker + 2, t.textValue, 1);
+            } else {
+                constexpr int marker = 9;
+                const int mx = sx + (CELL - 3 - marker) / 2;
+                const int my = rowY + 34 - marker - 3;
+                const Argb markerInk = active ? t.textPlayhead : t.textEmpty;
+                c.stroke_rect(mx, my, marker, marker, markerInk, 1);
             }
         }
 

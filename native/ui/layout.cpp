@@ -198,6 +198,7 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.cursorStep = s.seqPatternCursorStep;
                 ps.parameter = static_cast<PatternParameter>(std::clamp(s.seqPatternParameter, 0, 15));
                 ps.theme = t;
+                ps.isPlaying = s.isPlaying;
                 pattern_.draw(c, moduleX, EDITOR_Y, ps);
                 break;
             }
@@ -210,6 +211,7 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 for (int track = 0; track < songcore::SEQUENCER_TRACKS; ++track)
                     bs.playheads[static_cast<size_t>(track)] = s.playheads[track];
                 bs.blinkPhaseMs = s.blinkPhaseMs;
+                bs.isPlaying = s.isPlaying;
                 bs.cursorTrack = s.seqBanksCursorTrack;
                 bs.cursorColumn = s.seqBanksCursorColumn;
                 bs.bankSelector = s.seqBanksBankSelector;

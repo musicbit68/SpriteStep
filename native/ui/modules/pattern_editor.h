@@ -43,6 +43,7 @@ struct PatternEditorState {
     PatternParameter parameter = PatternParameter::NOTE;
     TrackPlayhead playhead{}; // selected-track compatibility/readout
     Theme theme = theme_classic();
+    bool isPlaying = false;
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
 };
 

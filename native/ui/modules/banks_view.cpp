@@ -47,7 +47,10 @@ void BanksViewModule::draw(Canvas& c, int x, int y, const BanksViewState& state,
         c.draw_text("X", x + GRID_X + 39, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
 
         const auto& ph = state.playheads[static_cast<size_t>(track)];
-        const bool playingHere = ph.chainId == state.bank && ph.chainRow >= 0;
+        // chainId/chainRow are the handheld UI carrier for bank/pattern. The host now fills these
+        // from runtime state even when the pattern has no sounding event, so the playing indicator
+        // remains correct during rests and on empty patterns.
+        const bool playingHere = state.isPlaying && ph.chainId == state.bank && ph.chainRow >= 0;
         const auto& cue = state.cues[static_cast<size_t>(track)];
         for (int p = 0; p < sequencer::PATTERN_COUNT; ++p) {
             const int px = x + GRID_X + 68 + p * CELL_W;

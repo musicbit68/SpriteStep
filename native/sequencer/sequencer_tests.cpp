@@ -267,6 +267,23 @@ static void test_playhead_readback_uses_actual_event_frame() {
     assert(ph2->step == 1);
 }
 
+static void test_playing_scene_is_runtime_authority() {
+    Project p;
+    ArrangeScene first;
+    first.tracks[0] = PatternRef{true, 0, 0};
+    ArrangeScene second;
+    second.tracks[0] = PatternRef{true, 0, 1};
+    p.scenes.push_back(first);
+    p.scenes.push_back(second);
+    make_pattern(p, 0, 0, 0, 1);
+    make_pattern(p, 0, 0, 1, 1);
+
+    Sequencer seq(p, 48000);
+    seq.start_arrange(1, 1000);
+    // The scene readback must work before any musical event is emitted.
+    assert(seq.playing_scene_at(1000) == 1);
+}
+
 static void test_cue_readback_survives_lookahead_until_boundary() {
     Project p;
     ArrangeScene s;
@@ -301,6 +318,7 @@ int main() {
     test_wait_delays_trigger_without_changing_grid();
     test_trigless_preserves_grid_and_marks_event();
     test_playhead_readback_uses_actual_event_frame();
+    test_playing_scene_is_runtime_authority();
     test_cue_readback_survives_lookahead_until_boundary();
     std::cout << "sequencer tests: PASS\n";
     return 0;
