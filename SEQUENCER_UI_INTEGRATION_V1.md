@@ -67,3 +67,21 @@ Passed:
 - all of the above under AddressSanitizer + UndefinedBehaviorSanitizer
 - full `spritestep` static library build
 - full `pt-ui` static library build
+
+
+## SPRITESTEP handheld screen map (UI V3)
+
+The legacy Song / Chain / Phrase / Table / Groove screens are no longer reachable from the handheld UI.
+They remain in the source only as compatibility code for the existing songcore document/audio model.
+
+The visible five-screen horizontal map is:
+
+`ARRANGE  BANKS  PATTERN  INSTRUMENT  MODS`
+
+Vertical navigation uses the existing pages without changing their visual modules:
+
+- PATTERN → SCALE → PATTERN
+- INSTRUMENT → INST.POOL → INSTRUMENT
+- any main screen → MIXER → EFFECTS
+
+R+LEFT/RIGHT cycles only the five SPRITESTEP main screens. R+UP/DOWN moves through the vertical context pages.

@@ -6,28 +6,25 @@
 namespace pt::ui {
 
 namespace {
-
-/**
- * The 5×5 template: what each COLUMN holds, top to bottom. `nullopt` (here: the NONE sentinel) is an
- * empty cell. Rows 3 and 4 are MIXER/EFFECTS in every column because they are shared; row 2 is the
- * main row and is filled in separately, since it is drawn whatever column you are in.
- *
- *   COLUMN_LAYOUTS in the Kotlin, verbatim — only the phrase and instrument columns have five screens.
- */
 constexpr int EMPTY_CELL = -1;
 
 int column_layout(int col, int row) {
-    // -1 = empty; otherwise a ScreenType cast to int.
+    // Visible SPRITESTEP map. Five horizontal major views, with only the
+    // context screens that actually belong to the current column shown above
+    // them. Mixer/Effects are shared and are painted across all columns.
     static const int L[5][5] = {
-        // row 0            row 1                             row 2                             row 3                          row 4
-        {EMPTY_CELL,        (int)ScreenType::PROJECT,   (int)ScreenType::SONG,       (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
-        {EMPTY_CELL,        (int)ScreenType::PROJECT,   (int)ScreenType::CHAIN,      (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
-        {(int)ScreenType::SCALE,     (int)ScreenType::GROOVE, (int)ScreenType::PHRASE,     (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
-        {(int)ScreenType::INST_POOL, (int)ScreenType::MODS,   (int)ScreenType::INSTRUMENT, (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
-        {EMPTY_CELL,        (int)ScreenType::PROJECT,   (int)ScreenType::TABLE,      (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
+        // row 0          row 1      row 2       row 3                       row 4
+        {EMPTY_CELL,      EMPTY_CELL, (int)ScreenType::ARRANGE,    (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
+        {EMPTY_CELL,      EMPTY_CELL, (int)ScreenType::BANKS,      (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
+        {(int)ScreenType::SCALE, EMPTY_CELL, (int)ScreenType::PATTERN, (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
+        {(int)ScreenType::INST_POOL, EMPTY_CELL, (int)ScreenType::INSTRUMENT, (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
+        {EMPTY_CELL,      EMPTY_CELL, (int)ScreenType::MODS,       (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
     };
-    if (col < 0 || col > 4) col = 2;  // the phrase column is the fallback, as in Kotlin
-    return L[col][row];
+    if (col < 0 || col > 4) col = 2;
+    int v = L[col][row];
+    // Named enum values above are safe because this table is compiled in the
+    // same namespace as ScreenType.
+    return v;
 }
 
 }  // namespace
@@ -41,27 +38,17 @@ void NavigationMapModule::draw(Canvas& c, int x, int y, const NavigationMapState
     const int screenCol  = screen_column(s.currentScreen);
     const int currentCol = (screenCol == -1) ? s.sourceColumn : screenCol;
 
-    // The grid: the always-visible main row, plus this column's own screens.
+    // The visible map is driven by the same five-column contract as navigation.h.
     int grid[5][5];
     for (int row = 0; row < 5; ++row)
         for (int col = 0; col < 5; ++col) grid[row][col] = EMPTY_CELL;
 
-    grid[2][0] = static_cast<int>(ScreenType::SONG);
-    grid[2][1] = static_cast<int>(ScreenType::CHAIN);
-    grid[2][2] = static_cast<int>(ScreenType::PHRASE);
-    grid[2][3] = static_cast<int>(ScreenType::INSTRUMENT);
-    grid[2][4] = static_cast<int>(ScreenType::TABLE);
-
     const int col = (currentCol < 0 || currentCol > 4) ? 2 : currentCol;
     for (int row = 0; row < 5; ++row) grid[row][col] = column_layout(col, row);
-
-    // The pool's fast-jump INSTRUMENT cell, at row 0 / col 4 — to the RIGHT of the pool (row 0 / col
-    // 3), which is where R+RIGHT goes from there. It shows both while ON the pool and while on an
-    // INSTRUMENT reached from it; in the latter case THAT cell is the current position, not the normal
-    // row-2 instrument (they share a ScreenType, so position — not identity — is what disambiguates).
-    const bool onPoolInstrument = (s.currentScreen == ScreenType::INSTRUMENT && s.instrumentFromPool);
-    if (s.currentScreen == ScreenType::INST_POOL || onPoolInstrument)
-        grid[0][4] = static_cast<int>(ScreenType::INSTRUMENT);
+    for (int ccol = 0; ccol < 5; ++ccol) {
+        grid[3][ccol] = static_cast<int>(ScreenType::MIXER);
+        grid[4][ccol] = static_cast<int>(ScreenType::EFFECTS);
+    }
 
     for (int row = 0; row < 5; ++row) {
         for (int gcol = 0; gcol < 5; ++gcol) {
@@ -72,8 +59,7 @@ void NavigationMapModule::draw(Canvas& c, int x, int y, const NavigationMapState
             const int        cellX  = x + (gcol * CELL_WIDTH);
             const int        cellY  = y + (row * CELL_HEIGHT);
 
-            const bool isCurrent = onPoolInstrument ? (row == 0 && gcol == 4)
-                                                    : (screen == s.currentScreen);
+            const bool isCurrent = (screen == s.currentScreen);
 
             const std::string label  = screen_short_label(screen);
             const int         labelW = Canvas::text_width(label, CHAR_SPACING, FONT_SCALE);

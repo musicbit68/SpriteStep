@@ -1,31 +1,21 @@
 #pragma once
 
-// ─── Screen navigation ───────────────────────────────────────────────────────────────────────────
+// SPRITESTEP navigation map.
 //
-// A 1:1 port of the screen-grid half of core/logic/TrackerController.kt: `getScreenColumn`,
-// `getMainScreenForColumn`, and the four `navigate*` functions R+DPAD drives.
+// The old PocketTracker/Songcore editor hierarchy (Song -> Chain -> Phrase -> Table)
+// is retained internally for compatibility with the legacy document model, but it is
+// NOT part of the handheld UI. The visible five-screen horizontal row is:
 //
-// It is the SAME 5×5 grid that `modules/navigation_map.h` draws, and that is the whole reason these
-// two land in the same session. The map is the picture; this is the movement. A drift between them —
-// a cell you can see but cannot reach, or a screen you land on that the map draws nowhere — is the
-// only interesting bug in either, and keeping them side by side is what makes it obvious.
+//   ARRANGE  BANKS  PATTERN  INSTRUMENT  MODS
 //
-//        col 0     col 1     col 2     col 3       col 4
-//  row 0                     SCALE     INST.POOL              ← column-specific
-//  row 1  PROJECT  PROJECT   GROOVE    MODS        PROJECT    ← column-specific
-//  row 2  SONG     CHAIN     PHRASE    INSTRUMENT  TABLE      ← the main row, always visible
-//  row 3  MIXER    MIXER     MIXER     MIXER       MIXER      ← shared
-//  row 4  EFFECTS  EFFECTS   EFFECTS   EFFECTS     EFFECTS    ← shared
+// Vertical context screens are deliberately kept in their original modules:
 //
-// PROJECT / MIXER / EFFECTS are shared: they sit in every column and therefore have no column of
-// their own. `previousColumn` is what remembers which one you entered from, so that leaving one of
-// them — UP onto the main row, or SIDEWAYS onto the column beside it — is answered relative to where
-// you dropped in rather than from a fixed default. That is why every function here takes it, and why
-// they return the new column alongside the new screen — the pair travels together or it desyncs.
+//   PATTERN      SCALE
+//   INSTRUMENT   INST.POOL
+//   all columns  MIXER -> EFFECTS
 //
-// The four `navigate_*` functions are PURE: a `NavState` in, a `NavResult` out, no canvas and no
-// engine. `go_to_screen` at the bottom is the one that APPLIES the answer, and it carries the whole
-// rest of the transaction — which is not optional bookkeeping, see its comment.
+// R+LEFT/RIGHT moves along the five main SPRITESTEP screens. R+UP/DOWN moves within
+// the current column. This is the navigation contract used by the MAP renderer too.
 
 #include "app_state.h"
 #include "cursor_move.h"
@@ -35,50 +25,39 @@
 
 namespace pt::ui {
 
-/** Where R+DPAD lands, and the column memory that must be stored with it. */
 struct NavResult {
-    ScreenType screen = ScreenType::PHRASE;
-    int        column = 2;
-    /**
-     * `TrackerController.instrumentFromPool` — set by R+RIGHT out of the pool, so a later R+LEFT
-     * returns to the pool instead of falling through to PHRASE. The Kotlin `currentScreen` setter
-     * clears it on any move OFF the instrument screen; `apply_navigation` below does the same.
-     */
+    ScreenType screen = ScreenType::PATTERN;
+    int column = 2;
     bool instrumentFromPool = false;
 };
 
-/** The inputs the four navigate functions read. */
 struct NavState {
-    ScreenType currentScreen     = ScreenType::PHRASE;
-    int        previousColumn    = 2;
-    bool       instrumentFromPool = false;
+    ScreenType currentScreen = ScreenType::PATTERN;
+    int previousColumn = 2;
+    bool instrumentFromPool = false;
 };
 
-/** The column a screen owns, or −1 for the shared screens (PROJECT / MIXER / EFFECTS) that own none. */
 inline int screen_column(ScreenType s) {
     switch (s) {
-        case ScreenType::SONG:  return 0;
-        case ScreenType::CHAIN: return 1;
-        case ScreenType::PHRASE:
-        case ScreenType::GROOVE:
-        case ScreenType::SCALE: return 2;
-        case ScreenType::INSTRUMENT:
-        case ScreenType::MODS:
-        case ScreenType::INST_POOL: return 3;
-        case ScreenType::TABLE: return 4;
-        default: return -1;  // shared / popup — the caller substitutes previousColumn
+        case ScreenType::ARRANGE:    return 0;
+        case ScreenType::BANKS:      return 1;
+        case ScreenType::PATTERN:    return 2;
+        case ScreenType::INSTRUMENT: return 3;
+        case ScreenType::MODS:       return 4;
+        case ScreenType::SCALE:      return 2;
+        case ScreenType::INST_POOL:  return 3;
+        default: return -1; // shared/context/legacy/popup screens
     }
 }
 
-/** The main-row (row 2) screen of a column. */
 inline ScreenType main_screen_for_column(int column) {
     switch (column) {
-        case 0:  return ScreenType::SONG;
-        case 1:  return ScreenType::CHAIN;
-        case 2:  return ScreenType::PHRASE;
-        case 3:  return ScreenType::INSTRUMENT;
-        case 4:  return ScreenType::TABLE;
-        default: return ScreenType::PHRASE;
+        case 0: return ScreenType::ARRANGE;
+        case 1: return ScreenType::BANKS;
+        case 2: return ScreenType::PATTERN;
+        case 3: return ScreenType::INSTRUMENT;
+        case 4: return ScreenType::MODS;
+        default: return ScreenType::PATTERN;
     }
 }
 
@@ -89,149 +68,76 @@ inline bool is_main_row(ScreenType s) {
 }
 
 namespace detail {
-/** The column to reason from: the screen's own, or the remembered one if it has none. */
 inline int context_column(const NavState& s) {
     const int c = screen_column(s.currentScreen);
-    return (c == -1) ? s.previousColumn : c;
+    return c == -1 ? s.previousColumn : c;
 }
 
-/**
- * Does R+LEFT/R+RIGHT step SIDEWAYS off this screen, onto the MAIN row one column over?
- *
- * True for every screen off the main row that sits in a column: row 1 (PROJECT / GROOVE / MODS) and
- * the two shared rows below it (MIXER, EFFECTS). You do not walk ALONG those rows — row 4 is EFFECTS
- * in all five columns, so a step sideways within it would change nothing you can see — you drop back
- * to the tracker and then move.
- *
- * The three that are absent are absent for three reasons: INST.POOL owns the fast-jump pair, SCALE
- * drops straight to its own column's main screen, and the popups have no cell in the grid to move from.
- */
-inline bool exits_sideways_to_main_row(ScreenType s) {
-    return s == ScreenType::PROJECT || s == ScreenType::GROOVE || s == ScreenType::MODS ||
-           s == ScreenType::MIXER   || s == ScreenType::EFFECTS;
+inline bool is_vertical_context(ScreenType s) {
+    return s == ScreenType::SCALE || s == ScreenType::INST_POOL ||
+           s == ScreenType::MIXER || s == ScreenType::EFFECTS;
 }
-}  // namespace detail
+
+inline bool is_spritestep_screen(ScreenType s) {
+    return is_main_row(s) || is_vertical_context(s);
+}
+}
 
 inline NavResult navigate_up(const NavState& s) {
     const int col = detail::context_column(s);
-
-    // Row-0 instrument (entered from the pool): nothing above it — stay.
-    if (s.currentScreen == ScreenType::INSTRUMENT && s.instrumentFromPool)
-        return {ScreenType::INSTRUMENT, 3, true};
-
     switch (s.currentScreen) {
-        case ScreenType::EFFECTS: return {ScreenType::MIXER, col};                    // row 4 → 3
-        case ScreenType::MIXER:   return {main_screen_for_column(col), col};          // row 3 → 2
-
-        case ScreenType::SONG:                                                        // row 2 → 1
-        case ScreenType::CHAIN:
-        case ScreenType::TABLE:      return {ScreenType::PROJECT, col};
-        case ScreenType::PHRASE:     return {ScreenType::GROOVE, 2};
-        case ScreenType::INSTRUMENT: return {ScreenType::MODS, 3};
-
-        case ScreenType::PROJECT: return {ScreenType::PROJECT, col};                  // row 1 → 0
-        case ScreenType::GROOVE:  return {ScreenType::SCALE, 2};
-        case ScreenType::MODS:    return {ScreenType::INST_POOL, 3};
-
-        default: return {s.currentScreen, col};  // row 0 (SCALE / INST_POOL) and the popups: stay
+        case ScreenType::EFFECTS:    return {ScreenType::MIXER, col};
+        case ScreenType::MIXER:      return {main_screen_for_column(col), col};
+        case ScreenType::SCALE:      return {ScreenType::SCALE, 2};
+        case ScreenType::INST_POOL:  return {ScreenType::INST_POOL, 3};
+        case ScreenType::PATTERN:    return {ScreenType::SCALE, 2};
+        case ScreenType::INSTRUMENT: return {ScreenType::INST_POOL, 3};
+        case ScreenType::MODS:       return {ScreenType::INSTRUMENT, 3};
+        case ScreenType::ARRANGE:
+        case ScreenType::BANKS:      return {s.currentScreen, col};
+        default:                     return {s.currentScreen, col};
     }
 }
 
 inline NavResult navigate_down(const NavState& s) {
     const int col = detail::context_column(s);
-
-    // Row-0 instrument (from the pool) drops to MODS, like the pool to its left.
-    if (s.currentScreen == ScreenType::INSTRUMENT && s.instrumentFromPool)
-        return {ScreenType::MODS, 3};
-
     switch (s.currentScreen) {
-        case ScreenType::SCALE:     return {ScreenType::GROOVE, 2};                   // row 0 → 1
-        case ScreenType::INST_POOL: return {ScreenType::MODS, 3};
-
-        case ScreenType::GROOVE:  return {ScreenType::PHRASE, 2};                     // row 1 → 2
-        case ScreenType::MODS:    return {ScreenType::INSTRUMENT, 3};
-        case ScreenType::PROJECT: return {main_screen_for_column(col), col};
-
-        case ScreenType::SONG:                                                        // row 2 → 3
-        case ScreenType::CHAIN:
-        case ScreenType::PHRASE:
+        case ScreenType::SCALE:      return {ScreenType::PATTERN, 2};
+        case ScreenType::INST_POOL:  return {ScreenType::INSTRUMENT, 3};
+        case ScreenType::MIXER:     return {ScreenType::EFFECTS, col};
+        case ScreenType::EFFECTS:   return {ScreenType::EFFECTS, col};
+        case ScreenType::ARRANGE:
+        case ScreenType::BANKS:
+        case ScreenType::PATTERN:
         case ScreenType::INSTRUMENT:
-        case ScreenType::TABLE: return {ScreenType::MIXER, col};
-
-        case ScreenType::MIXER:   return {ScreenType::EFFECTS, col};                  // row 3 → 4
-        case ScreenType::EFFECTS: return {ScreenType::EFFECTS, col};                  // row 4: stay
-
-        default: return {s.currentScreen, col};
+        case ScreenType::MODS:      return {ScreenType::MIXER, col};
+        default:                    return {s.currentScreen, col};
     }
 }
 
 inline NavResult navigate_left(const NavState& s) {
-    // The instrument-pool fast-jump pair, R+LEFT half: out of the pool exits left to PHRASE, and out
-    // of an INSTRUMENT that was ENTERED from the pool returns to it. (A normally-entered INSTRUMENT
-    // still goes to PHRASE — which is exactly what instrumentFromPool is for.)
-    if (s.currentScreen == ScreenType::INST_POOL) return {ScreenType::PHRASE, 2};
-    if (s.currentScreen == ScreenType::INSTRUMENT && s.instrumentFromPool)
-        return {ScreenType::INST_POOL, 3, true};
-
-    // Rows 1, 3 and 4 exit sideways onto the MAIN row, one column over.
-    //
-    // ⭐ THE COLUMN IS DERIVED, not spelled out per screen: `context_column` is the SAME reading the
-    // navigation MAP paints (`modules/navigation_map.cpp:42`), so the picture and the movement cannot
-    // disagree about which column a shared screen is standing in — which is the one bug either can
-    // have. For MIXER and EFFECTS that column is the one they were ENTERED from, so a sideways exit
-    // lands beside the screen you dropped in from and never on a fixed pair.
-    if (detail::exits_sideways_to_main_row(s.currentScreen)) {
-        const int contextCol = detail::context_column(s);
-        const int target = contextCol - 1 < 0 ? 0 : contextCol - 1;
-        return {main_screen_for_column(target), target};
+    const int col = detail::context_column(s);
+    if (is_main_row(s.currentScreen)) {
+        return {main_screen_for_column(std::max(0, col - 1)), std::max(0, col - 1)};
     }
-
-    // Any other non-main-row screen (SCALE): drop to the main row of its own column.
-    if (!is_main_row(s.currentScreen)) {
-        const int c = screen_column(s.currentScreen);
-        return {main_screen_for_column(c), c};
-    }
-
-    switch (s.currentScreen) {  // along the main row: S C P I T
-        case ScreenType::TABLE:      return {ScreenType::INSTRUMENT, 3};
-        case ScreenType::INSTRUMENT: return {ScreenType::PHRASE, 2};
-        case ScreenType::PHRASE:     return {ScreenType::CHAIN, 1};
-        case ScreenType::CHAIN:      return {ScreenType::SONG, 0};
-        case ScreenType::SONG:       return {ScreenType::SONG, 0};  // leftmost: stay
-        default: return {s.currentScreen, s.previousColumn};
-    }
+    // From a vertical context, return to its owning main screen rather than
+    // exposing any of the legacy Song/Chain/Phrase/Table screens.
+    if (detail::is_spritestep_screen(s.currentScreen))
+        return {main_screen_for_column(col), col};
+    return {s.currentScreen, col};
 }
 
 inline NavResult navigate_right(const NavState& s) {
-    // R+RIGHT out of the pool jumps to INSTRUMENT and MARKS it, so R+LEFT comes back to the pool.
-    if (s.currentScreen == ScreenType::INST_POOL) return {ScreenType::INSTRUMENT, 3, true};
-    // …and that row-0 instrument has nothing to its right — stay, rather than fall through to TABLE.
-    if (s.currentScreen == ScreenType::INSTRUMENT && s.instrumentFromPool)
-        return {ScreenType::INSTRUMENT, 3, true};
-
-    // The mirror of navigate_left's — see the comment there for why the column is derived.
-    if (detail::exits_sideways_to_main_row(s.currentScreen)) {
-        const int contextCol = detail::context_column(s);
-        const int target = contextCol + 1 > 4 ? 4 : contextCol + 1;
-        return {main_screen_for_column(target), target};
+    const int col = detail::context_column(s);
+    if (is_main_row(s.currentScreen)) {
+        return {main_screen_for_column(std::min(4, col + 1)), std::min(4, col + 1)};
     }
-
-    if (!is_main_row(s.currentScreen)) {
-        const int c = screen_column(s.currentScreen);
-        return {main_screen_for_column(c), c};
-    }
-
-    switch (s.currentScreen) {
-        case ScreenType::SONG:       return {ScreenType::CHAIN, 1};
-        case ScreenType::CHAIN:      return {ScreenType::PHRASE, 2};
-        case ScreenType::PHRASE:     return {ScreenType::INSTRUMENT, 3};
-        case ScreenType::INSTRUMENT: return {ScreenType::TABLE, 4};
-        case ScreenType::TABLE:      return {ScreenType::TABLE, 4};  // rightmost: stay
-        default: return {s.currentScreen, s.previousColumn};
-    }
+    if (detail::is_spritestep_screen(s.currentScreen))
+        return {main_screen_for_column(col), col};
+    return {s.currentScreen, col};
 }
 
-// ─── Applying it ─────────────────────────────────────────────────────────────────────────────────
+// ─── Applying it ─────────────────────────────────────────────────────────────────
 
 /** The NavState the four functions above want, read off the live AppState. */
 inline NavState nav_state_of(const AppState& s) {
@@ -267,7 +173,10 @@ inline void go_to_screen(AppState& s, const NavResult& r) {
     s.currentScreen  = r.screen;
     s.previousColumn = r.column;
 
-    s.instrumentFromPool = (r.screen == ScreenType::INSTRUMENT) ? r.instrumentFromPool : false;
+    // The five SPRITESTEP major views own the horizontal R+LEFT/RIGHT ring.
+    // Context screens (SCALE, INST.POOL, MIXER, EFFECTS) temporarily leave that ring.
+    s.seqMajorViewContext = is_main_row(r.screen);
+    s.instrumentFromPool = false;
 
     if (r.screen == ScreenType::TABLE) {
         // Kotlin runs this line through the currentTable SETTER (TrackerController.kt:124–129),

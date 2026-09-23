@@ -119,9 +119,26 @@ chmod +x "$STAGE/SPRITESTEP.sh"
 # shows the SONG screen mid-edit rather than a title card, which the porting guide asks for.
 cp "$SRC/docs/images/screenshot.png" "$STAGE/screenshot.png"
 
+# Keep a tiny build-provenance file inside the device package. This makes it possible to inspect
+# an installed PortMaster artifact and immediately tell which UI revision it contains instead of
+# relying on the download filename alone.
+{
+    echo "SPRITESTEP UI revision: SPRITESTEP-UI-V3"
+    echo "git commit: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "git describe: $(git describe --always --dirty 2>/dev/null || echo unknown)"
+} > "$STAGE/spritestep/build-info.txt"
+
 cp "$BUILD/spritestep-sdl" "$BIN"
 chmod +x "$BIN"
 aarch64-linux-gnu-strip "$BIN"
+
+# The binary itself must carry the same UI revision that the source and build script claim.
+if ! strings "$BIN" | grep -q 'SPRITESTEP-UI-V3'; then
+    echo "FAIL: ARM64 binary does not contain SPRITESTEP-UI-V3."
+    echo "      The PortMaster artifact was not built from the expected UI revision."
+    exit 1
+fi
+echo "UI revision          : SPRITESTEP-UI-V3"
 
 # SPRITESTEP is GPL-3.0, and it statically links its decoders — so their notices ship with the
 # binary that contains them, not just with the source tree that built it. A missing one is a licence

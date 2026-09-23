@@ -10,7 +10,10 @@
 namespace pt::ui {
 
 enum class ScreenType {
-    // Main screens (middle row — always visible)
+    // SPRITESTEP main screens (middle row — always visible)
+    // The legacy SONG/CHAIN/PHRASE/TABLE screens remain as internal compatibility
+    // types for the old document/audio model, but are deliberately not exposed by
+    // navigation or the navigation map.
     SONG,
     CHAIN,
     PHRASE,
@@ -99,8 +102,8 @@ inline const char* screen_short_label(ScreenType s) {
 }
 
 /** The always-visible middle row of the navigation map. */
-inline constexpr ScreenType MAIN_ROW_SCREENS[] = {ScreenType::SONG, ScreenType::CHAIN,
-                                                  ScreenType::PHRASE, ScreenType::INSTRUMENT,
-                                                  ScreenType::TABLE};
+inline constexpr ScreenType MAIN_ROW_SCREENS[] = {ScreenType::ARRANGE, ScreenType::BANKS,
+                                                  ScreenType::PATTERN, ScreenType::INSTRUMENT,
+                                                  ScreenType::MODS};
 
 }  // namespace pt::ui

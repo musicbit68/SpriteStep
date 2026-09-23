@@ -22,7 +22,7 @@
 namespace pt::ui {
 
 struct NavigationMapState {
-    ScreenType currentScreen = ScreenType::PHRASE;
+    ScreenType currentScreen = ScreenType::PATTERN;
     /** Which column a shared screen (PROJECT / MIXER / EFFECTS) was entered from. */
     int  sourceColumn       = 2;
     bool instrumentFromPool = false;  // on INSTRUMENT, entered via the pool's R+RIGHT

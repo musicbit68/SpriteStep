@@ -67,7 +67,7 @@ struct AppState {
     // SONG, as Android boots (TrackerController.kt:41) — not PHRASE, which was an S1 relic from when
     // PHRASE was the only screen that existed. The shell adds no boot assignment of its own: a boot
     // line that merely restates a default is a second place for the default to rot.
-    ScreenType currentScreen = ScreenType::SONG;
+    ScreenType currentScreen = ScreenType::PATTERN;
 
     /**
      * Which column of the 5×5 screen grid a SHARED screen was entered from (PROJECT / MIXER /
@@ -108,7 +108,7 @@ struct AppState {
     bool seqStepClipboardTrigless = false;
     // True while R1/R+D-pad is being used as the handheld sequencer's six-screen major-view ring.
     // The actual Instrument and MODS modules are reused; this flag only changes their R1 navigation.
-    bool seqMajorViewContext = false;
+    bool seqMajorViewContext = true;
 
     int tableCursorRow    = 0;
     int tableCursorColumn = 1;  // starts on transpose

@@ -241,7 +241,7 @@ int run(const AppConfig& cfg) {
     // PT_VERSION_STRING comes from native/cmake/pt_version.cmake, which reads app/build.gradle.kts.
     // No fallback here on purpose: a tree that forgets the define must fail to COMPILE rather than
     // print a version that is quietly a lie.
-    std::printf("SPRITESTEP %s\n", PT_VERSION_STRING);
+    std::printf("SPRITESTEP %s %s\n", PT_VERSION_STRING, PT_UI_REVISION);
 
     AudioEngine&  engineRef  = *cfg.engine;
     AudioBackend& audio      = *cfg.audio;

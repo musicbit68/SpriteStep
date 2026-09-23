@@ -159,7 +159,7 @@ add_executable(spritestep-sdl
 
 # app.cpp's boot banner. A bug report arrives as a log file and a sentence, and without this the
 # version is only in the download's filename — which a reporter has usually thrown away.
-target_compile_definitions(spritestep-sdl PRIVATE "PT_VERSION_STRING=\"${PT_VERSION}\"")
+target_compile_definitions(spritestep-sdl PRIVATE "PT_VERSION_STRING=\"${PT_VERSION}\"" "PT_UI_REVISION=\"SPRITESTEP-UI-V3\"")
 
 # winmm — `midiOutShortMsg` and friends (midi-out-winmm.cpp). In every Windows install; no package,
 # no manifest capability.
