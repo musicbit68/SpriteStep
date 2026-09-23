@@ -2125,6 +2125,11 @@ inline HelpTopic help_screen_topic(ScreenType screen) {
         case ScreenType::SONG:          return HelpTopic::SCREEN_SONG;
         case ScreenType::CHAIN:         return HelpTopic::SCREEN_CHAIN;
         case ScreenType::PHRASE:        return HelpTopic::SCREEN_PHRASE;
+        // SPRITESTEP replaces the visible SONG/PHRASE workflow with PATTERN/BANKS/ARRANGE.
+        // Reuse the existing fallback help until dedicated screen topics are added.
+        case ScreenType::PATTERN:       return HelpTopic::SCREEN_PHRASE;
+        case ScreenType::BANKS:         return HelpTopic::SCREEN_SONG;
+        case ScreenType::ARRANGE:       return HelpTopic::SCREEN_SONG;
         case ScreenType::INSTRUMENT:    return HelpTopic::SCREEN_INSTRUMENT;
         case ScreenType::TABLE:         return HelpTopic::SCREEN_TABLE;
         case ScreenType::PROJECT:       return HelpTopic::SCREEN_PROJECT;

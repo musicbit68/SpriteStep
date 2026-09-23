@@ -123,6 +123,7 @@ cp "$SRC/docs/images/screenshot.png" "$STAGE/screenshot.png"
 # an installed PortMaster artifact and immediately tell which UI revision it contains instead of
 # relying on the download filename alone.
 {
+    echo "SPRITESTEP source package: v4"
     echo "SPRITESTEP UI revision: SPRITESTEP-UI-V3"
     echo "git commit: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "git describe: $(git describe --always --dirty 2>/dev/null || echo unknown)"

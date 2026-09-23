@@ -515,7 +515,7 @@ if(ANDROID)
     # app.cpp's boot banner, from the same parse the desktop and the Windows .rc use. On Android the
     # log file is the only place a version can appear at all — there is no filename to read it off.
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/pt_version.cmake")
-    target_compile_definitions(spritestep-sdl PRIVATE "PT_VERSION_STRING=\"${PT_VERSION}\"")
+    target_compile_definitions(spritestep-sdl PRIVATE "PT_VERSION_STRING=\"${PT_VERSION}\"" "PT_UI_REVISION=\"SPRITESTEP-UI-V3\"")
 
     # ─── IEEE-exactness: a CORRECTNESS requirement, and one this file was WARNED to restate ───────
     #
