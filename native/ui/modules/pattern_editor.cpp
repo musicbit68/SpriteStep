@@ -5,16 +5,14 @@
 #include "songcore/effects.h"
 #include "songcore/scales.h"
 #include "ui/helpers.h"
+#include "ui/matrix_geometry.h"
 
 namespace pt::ui {
 
 namespace {
 using songcore::PhraseStep;
 
-constexpr int GRID_X = 22;
-constexpr int GRID_Y = 42;
-constexpr int CELL = 35;
-constexpr int ROW_H = 37;
+
 constexpr int BOTTOM_Y = 352;
 
 bool is_fx_parameter(PatternParameter p) {
@@ -217,7 +215,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     // The step grid is deliberately fixed at 16 columns; the pattern's end marker is the small
     // triangle above its final active column.
     for (int track = 0; track < sequencer::TRACK_COUNT; ++track) {
-        const int rowY = y + GRID_Y + track * ROW_H;
+        const int rowY = y + matrix::cell_y(track);
         const sequencer::Pattern* p = s.patterns[static_cast<size_t>(track)];
         const int pat  = s.patternIndices[static_cast<size_t>(track)];
         const bool selectedTrack = track == s.track;
@@ -227,10 +225,12 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                     selectedTrack ? cursor_mark_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
 
         for (int step = 0; step < STEP_COUNT; ++step) {
-            const int sx = x + GRID_X + step * CELL;
+            const int sx = x + matrix::cell_x(step);
             const bool inPattern = p && step < p->clamped_length();
             if (!inPattern) {
-                c.fill_rect(sx, rowY, CELL - 2, 34, darken(t.background, 1.35f));
+                const int mx = sx + matrix::empty_offset();
+                const int my = rowY + matrix::empty_offset();
+                c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
                 continue;
             }
 
@@ -239,12 +239,16 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool active = step_has_data(data) || p->conditions[si] != 0 ||
                                 p->wait_ppqn[si] != 0 || p->trigless[si] != 0;
             const bool cursor = selectedTrack && step == s.cursorStep;
-            const Argb fill = cursor ? t.rowCursor : active ? t.textValue : t.rowEvery4th;
-            c.fill_rect(sx, rowY, CELL - 3, 34, fill);
             if (active || cursor) {
+                const Argb fill = cursor ? t.rowCursor : t.textValue;
+                c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, fill);
                 const std::string value = pattern_parameter_text(*p, step, s.parameter);
                 c.draw_text(value, sx + 2, rowY + 9,
                             cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+            } else {
+                const int mx = sx + matrix::empty_offset();
+                const int my = rowY + matrix::empty_offset();
+                c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
             }
             // FMS-style playback markers. Every step in the active pattern gets a small square,
             // not only steps containing notes: this makes the transport position visible even during
@@ -254,22 +258,22 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool playingStep = s.isPlaying && playhead.phraseId == pat && playhead.step == step;
             if (playingStep) {
                 constexpr int marker = 13;
-                const int mx = sx + (CELL - 3 - marker) / 2;
-                const int my = rowY + 34 - marker - 3;
+                const int mx = sx + (matrix::OCCUPIED_SIZE - marker) / 2;
+                const int my = rowY + matrix::OCCUPIED_SIZE - marker - 3;
                 c.fill_rect(mx, my, marker, marker, t.textPlayhead);
                 c.stroke_rect(mx - 1, my - 1, marker + 2, marker + 2, t.textValue, 1);
             } else {
                 constexpr int marker = 9;
-                const int mx = sx + (CELL - 3 - marker) / 2;
-                const int my = rowY + 34 - marker - 3;
-                const Argb markerInk = active ? t.textPlayhead : t.textEmpty;
+                const int mx = sx + (matrix::OCCUPIED_SIZE - marker) / 2;
+                const int my = rowY + matrix::OCCUPIED_SIZE - marker - 3;
+                const Argb markerInk = active ? t.textPlayhead : matrix::EMPTY_COLOR;
                 c.stroke_rect(mx, my, marker, marker, markerInk, 1);
             }
         }
 
         if (p) {
             const int last = p->clamped_length() - 1;
-            const int tx = x + GRID_X + last * CELL + 13;
+            const int tx = x + matrix::cell_x(last) + 13;
             const int ty = rowY - 5;
             for (int k = 0; k < 3; ++k)
                 c.fill_rect(tx - k * 4, ty + k * 2, 8 + k * 2, 2, t.textParam);

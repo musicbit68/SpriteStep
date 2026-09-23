@@ -14,8 +14,8 @@ int column_layout(int col, int row) {
     // them. Mixer/Effects are shared and are painted across all columns.
     static const int L[5][5] = {
         // row 0          row 1      row 2       row 3                       row 4
-        {EMPTY_CELL,      EMPTY_CELL, (int)ScreenType::ARRANGE,    (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
-        {EMPTY_CELL,      EMPTY_CELL, (int)ScreenType::BANKS,      (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
+        {(int)ScreenType::PROJECT, EMPTY_CELL, (int)ScreenType::ARRANGE,    (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
+        {(int)ScreenType::PROJECT, EMPTY_CELL, (int)ScreenType::BANKS,      (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
         {(int)ScreenType::SCALE, EMPTY_CELL, (int)ScreenType::PATTERN, (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
         {(int)ScreenType::INST_POOL, EMPTY_CELL, (int)ScreenType::INSTRUMENT, (int)ScreenType::MIXER, (int)ScreenType::EFFECTS},
         {EMPTY_CELL,      EMPTY_CELL, (int)ScreenType::MODS,       (int)ScreenType::MIXER,   (int)ScreenType::EFFECTS},
@@ -56,7 +56,9 @@ void NavigationMapModule::draw(Canvas& c, int x, int y, const NavigationMapState
             if (cell == EMPTY_CELL) continue;  // empty cells are just background
 
             const ScreenType screen = static_cast<ScreenType>(cell);
-            const int        cellX  = x + (gcol * CELL_WIDTH);
+            // PROJECT is shared by the first two main columns. Paint it once, centered between
+            // ARRANGE and BANKS, so the map reads as one project node above both screens.
+            const int        cellX  = x + (screen == ScreenType::PROJECT ? CELL_WIDTH / 2 : gcol * CELL_WIDTH);
             const int        cellY  = y + (row * CELL_HEIGHT);
 
             const bool isCurrent = (screen == s.currentScreen);

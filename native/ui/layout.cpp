@@ -447,12 +447,8 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
         }
     }
 
-    // ── The right bar ────────────────────────────────────────────────────────────────────────────
-    //
-    // Hidden on SETTINGS — which is NOT because it is full-screen (it is a 510×392 panel like every
-    // other editor) but because Android hides it there too (PixelPerfectRenderer:801). A settings
-    // panel has no playhead and no notes to monitor; the eight-track readout beside it would be
-    // reporting on a song nobody is looking at.
+    // The tempo is a page header now; the note monitor has intentionally been removed.
+    // The navigation map remains in the existing right-side furniture until its placement is refined.
     if (s.currentScreen != ScreenType::SETTINGS) draw_right_bar(c, s);
 
     // ── The status line, and the selection/clipboard readout ──────────────────────────────────────
@@ -566,36 +562,21 @@ void TrackerLayout::draw_right_bar(Canvas& c, const AppState& s) const {
     const Theme&             t = s.theme;
     const songcore::Project& p = *s.project;
 
-    // The BPM row lines up with the COLUMN HEADER row of every editor, and is derived rather than
-    // written down so it cannot drift from them: an editor lays out a title row (21px) then a 14px
-    // spacer, putting its column headers at EDITOR_Y + 35 — which is 117.
-    const int bpmRowY  = EDITOR_Y + ROW_HEIGHT + 14;  // 117
-    const int bpmTextY = bpmRowY + TEXT_PADDING;      // 120
-
-    c.draw_text("T>", RIGHT_BAR_X + 2, bpmTextY, t.textEmpty, CHAR_SPACING, FONT_SCALE);
-    c.draw_text(std::to_string(p.tempo), RIGHT_BAR_X + 2 + 34, bpmTextY, t.textValue, CHAR_SPACING,
-                FONT_SCALE);
-
-    // The note monitor: one blank row below the BPM, then the 8 tracks. "1  C-4" — the track number
-    // dim, the note bright while it sounds.
-    const int trackRowsStartY = bpmRowY + ROW_HEIGHT + ROW_HEIGHT;  // 159
-    for (int i = 0; i < 8; ++i) {
-        const int            textY = trackRowsStartY + (i * ROW_HEIGHT) + TEXT_PADDING;
-        const songcore::Note note  = s.trackNotes[i];
-        const bool           empty = (note == songcore::Note::EMPTY());
-
-        c.draw_text(std::to_string(i + 1), RIGHT_BAR_X + 2, textY, t.textParam, CHAR_SPACING,
-                    FONT_SCALE);
-        c.draw_text(note_name(note), RIGHT_BAR_X + 2 + 34, textY, empty ? t.textEmpty : t.textValue,
-                    CHAR_SPACING, FONT_SCALE);
-    }
+    // Tempo belongs to the page header, not the matrix/right rail.
+    const int tempoY = EDITOR_Y + TEXT_PADDING;
+    c.draw_text("T>" + std::to_string(p.tempo), SIDE_SPACER + 500, tempoY,
+                t.textValue, CHAR_SPACING, FONT_SCALE);
 
     NavigationMapState ns;
     ns.currentScreen      = s.currentScreen;
     ns.sourceColumn       = s.previousColumn;
     ns.instrumentFromPool = s.instrumentFromPool;
     ns.theme              = t;
-    navigationMap_.draw(c, RIGHT_BAR_X, DESIGN_H - NavigationMapModule::HEIGHT - SCREEN_SPACER, ns);
+    const bool matrixScreen = s.currentScreen == ScreenType::ARRANGE ||
+                              s.currentScreen == ScreenType::BANKS ||
+                              s.currentScreen == ScreenType::PATTERN;
+    if (!matrixScreen)
+        navigationMap_.draw(c, RIGHT_BAR_X, DESIGN_H - NavigationMapModule::HEIGHT - SCREEN_SPACER, ns);
 }
 
 void TrackerLayout::draw_placeholder(Canvas& c, int x, int y, ScreenType screen,

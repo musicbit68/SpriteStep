@@ -74,7 +74,7 @@ inline int context_column(const NavState& s) {
 }
 
 inline bool is_vertical_context(ScreenType s) {
-    return s == ScreenType::SCALE || s == ScreenType::INST_POOL ||
+    return s == ScreenType::PROJECT || s == ScreenType::SCALE || s == ScreenType::INST_POOL ||
            s == ScreenType::MIXER || s == ScreenType::EFFECTS;
 }
 
@@ -87,6 +87,7 @@ inline NavResult navigate_up(const NavState& s) {
     const int col = detail::context_column(s);
     switch (s.currentScreen) {
         case ScreenType::EFFECTS:    return {ScreenType::MIXER, col};
+        case ScreenType::PROJECT:   return {ScreenType::PROJECT, col};
         case ScreenType::MIXER:      return {main_screen_for_column(col), col};
         case ScreenType::SCALE:      return {ScreenType::SCALE, 2};
         case ScreenType::INST_POOL:  return {ScreenType::INST_POOL, 3};
@@ -94,7 +95,7 @@ inline NavResult navigate_up(const NavState& s) {
         case ScreenType::INSTRUMENT: return {ScreenType::INST_POOL, 3};
         case ScreenType::MODS:       return {ScreenType::INSTRUMENT, 3};
         case ScreenType::ARRANGE:
-        case ScreenType::BANKS:      return {s.currentScreen, col};
+        case ScreenType::BANKS:      return {ScreenType::PROJECT, col};
         default:                     return {s.currentScreen, col};
     }
 }
@@ -102,6 +103,7 @@ inline NavResult navigate_up(const NavState& s) {
 inline NavResult navigate_down(const NavState& s) {
     const int col = detail::context_column(s);
     switch (s.currentScreen) {
+        case ScreenType::PROJECT:   return {main_screen_for_column(col), col};
         case ScreenType::SCALE:      return {ScreenType::PATTERN, 2};
         case ScreenType::INST_POOL:  return {ScreenType::INSTRUMENT, 3};
         case ScreenType::MIXER:     return {ScreenType::EFFECTS, col};

@@ -36,7 +36,7 @@ struct ArrangeInputResult {
 
 class ArrangeViewModule {
 public:
-    static constexpr int WIDTH = 510;
+    static constexpr int WIDTH = 610;
     static constexpr int HEIGHT = 392;
     static constexpr int TRACK_COUNT = songcore::SEQUENCER_TRACKS;
     static constexpr int SCENE_PAGE_COUNT = 8;

@@ -2,9 +2,9 @@
 
 // ─── The layout ──────────────────────────────────────────────────────────────────────────────────
 //
-// The C++ twin of `TrackerLayout.drawLayout` in ui/PixelPerfectRenderer.kt: the one function that
-// paints a frame. It fills the background, draws the oscilloscope strip, picks the module for the
-// current screen, and paints the furniture down the right — BPM, the note monitor, the navigation map.
+// The frame layout: oscilloscope/header strip, a full-width 620px editor region, and navigation
+// furniture. Sequencer matrices deliberately use the full editor width so their shared 37px grid
+// can show all sixteen columns.
 //
 // The geometry is the whole reason this exists as its own file, and it is exact:
 //
@@ -12,7 +12,7 @@
 //     y =  6.. 75   oscilloscope        (620 × 70, at x = 10)
 //     y = 76.. 81   6px spacer
 //     y = 82..473   the editor module   (510 × 392, at x = 10)      ← 6 + 70 + 6 + 392 = 474
-//     x = 515..     the right bar       (115 wide: BPM, note monitor, navigation map)
+//     navigation furniture is retained separately from the full-width sequencer editor.
 //
 // Editors are clipped to the left of the right bar so a full-width row highlight cannot bleed into
 // the BPM readout — Compose spells that `clipRect(right = …)`, and the number is derived below rather
@@ -64,7 +64,7 @@ inline constexpr int EDITOR_Y = SCREEN_SPACER + OscilloscopeModule::HEIGHT + SCR
 inline constexpr int RIGHT_BAR_X = DESIGN_W - NavigationMapModule::WIDTH - SIDE_SPACER;
 
 /** Right edge of the editor clip: 640 − 115 − 10 − 6 = 509. */
-inline constexpr int EDITOR_CLIP_RIGHT = RIGHT_BAR_X - SCREEN_SPACER;
+inline constexpr int EDITOR_CLIP_RIGHT = DESIGN_W - SIDE_SPACER;
 
 // PROJECT's NAME row holds more characters than it can show, and the number it CAN show is a fact
 // about this clip — the module knows neither the clip nor the x it is drawn at. Pinned here, from
@@ -73,9 +73,6 @@ inline constexpr int EDITOR_CLIP_RIGHT = RIGHT_BAR_X - SCREEN_SPACER;
 inline constexpr int PROJECT_NAME_CELLS_X = SIDE_SPACER + ProjectModule::VALUE_X;
 static_assert(PROJECT_NAME_CELLS_X + ProjectModule::NAME_VISIBLE_CHARS * CHAR_W <= EDITOR_CLIP_RIGHT,
               "PROJECT's NAME window spills past the editor clip");
-static_assert(PROJECT_NAME_CELLS_X + (ProjectModule::NAME_VISIBLE_CHARS + 1) * CHAR_W
-                  > EDITOR_CLIP_RIGHT,
-              "PROJECT's NAME window is narrower than the row affords — another cell fits");
 
 // INST.POOL's USED RAM readout sits in the title row, and the same clip applies to it. Pinned here
 // for the same reason: the module knows neither the clip nor the x it is drawn at, so nothing inside
@@ -150,7 +147,7 @@ private:
      */
     void draw_placeholder(Canvas& c, int x, int y, ScreenType screen, const Theme& t) const;
 
-    /** BPM · the 8-track note monitor · the navigation map. Hidden on the full-screen screens. */
+    /** tempo · navigation map. Hidden on the full-screen screens. */
     void draw_right_bar(Canvas& c, const AppState& s) const;
 
     /** The global status line — "SAVED", "SEQ CLEANED", "NO FREE PHRASES" — over the scope strip. */

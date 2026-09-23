@@ -4,28 +4,26 @@
 #include <string>
 
 #include "ui/helpers.h"
+#include "ui/matrix_geometry.h"
 
 namespace pt::ui {
 namespace {
-constexpr int GRID_X = 18;
-constexpr int GRID_Y = 43;
-constexpr int ROW_H = 37;
-constexpr int CELL_W = 31;
+
 constexpr int BANK_Y = 344;
 
 
 
 void draw_cell(Canvas& c, const Theme& t, int x, int y, const std::string& text,
                bool selected, bool playing, bool cueBlink) {
-    const int w = 25;
-    if (playing || cueBlink) {
-        c.fill_rect(x - 2, y - 2, w, 25, t.textValue);
-        c.draw_text(text, x + 4, y + 4, t.background, CHAR_SPACING, FONT_SCALE);
-        return;
+    // BANK's 0..F slots are addressable cells, so the slot itself is the occupied matrix cell.
+    // The action columns use the same geometry but remain text-only until selected.
+    if (playing || cueBlink || selected) {
+        c.fill_rect(x, y, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.textValue);
+        c.draw_text(text, x + 10, y + 10, t.background, CHAR_SPACING, FONT_SCALE);
+    } else {
+        c.fill_rect(x, y, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.rowEvery4th);
+        c.draw_text(text, x + 10, y + 10, t.textParam, CHAR_SPACING, FONT_SCALE);
     }
-    if (selected) c.fill_rect(x - 2, y - 2, w, 25, t.textValue);
-    const Argb ink = selected ? t.background : t.textParam;
-    c.draw_text(text, x + 4, y + 4, ink, CHAR_SPACING, FONT_SCALE);
 }
 
 
@@ -40,11 +38,11 @@ void BanksViewModule::draw(Canvas& c, int x, int y, const BanksViewState& state,
     // Eight track rows. Each row is ? / X / 0..F. The white cell is the pattern currently selected
     // for that track; this is also the pattern that Pattern View and playback use.
     for (int track = 0; track < sequencer::TRACK_COUNT; ++track) {
-        const int rowY = y + GRID_Y + track * ROW_H;
+        const int rowY = y + matrix::cell_y(track);
         const int selected = selected_pattern(state, track);
 
-        c.draw_text("?", x + GRID_X + 9, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
-        c.draw_text("X", x + GRID_X + 39, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
+        c.draw_text("?", x + matrix::cell_x(-2) + 14, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
+        c.draw_text("X", x + matrix::cell_x(-1) + 14, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
 
         const auto& ph = state.playheads[static_cast<size_t>(track)];
         // chainId/chainRow are the handheld UI carrier for bank/pattern. The host now fills these
@@ -53,7 +51,7 @@ void BanksViewModule::draw(Canvas& c, int x, int y, const BanksViewState& state,
         const bool playingHere = state.isPlaying && ph.chainId == state.bank && ph.chainRow >= 0;
         const auto& cue = state.cues[static_cast<size_t>(track)];
         for (int p = 0; p < sequencer::PATTERN_COUNT; ++p) {
-            const int px = x + GRID_X + 68 + p * CELL_W;
+            const int px = x + matrix::cell_x(p);
             const bool playing = playingHere && ph.chainRow == p;
             const bool cueHere = cue.pending && cue.bank == state.bank && cue.pattern == p;
             const bool cueBlink = cueHere && blink_on(state.blinkPhaseMs, false);

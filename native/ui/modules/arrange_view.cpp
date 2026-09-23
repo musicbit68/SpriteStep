@@ -1,18 +1,15 @@
 #include "ui/modules/arrange_view.h"
 
 #include "ui/helpers.h"
+#include "ui/matrix_geometry.h"
 
 #include <algorithm>
 
 namespace pt::ui {
 
 namespace {
-constexpr int CELL_W = 31;
-constexpr int CELL_H = 28;
-constexpr int LEFT = 10;
-constexpr int TOP = 46;
-constexpr int ROW_PITCH = 36;
-constexpr int COL_PITCH = 31;
+constexpr int LEFT = 2;
+constexpr int TOP = matrix::GRID_Y;
 constexpr int BANK_LABEL_Y = 2;
 constexpr int FOOTER_Y = 350;
 
@@ -79,7 +76,7 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
         const int scene = page * SCENES_PER_PAGE + col;
         const bool playing = scene == s.playingScene;
         const bool cursor = col == cursorCol;
-        const int hx = x + LEFT + col * COL_PITCH;
+        const int hx = x + matrix::cell_x(col);
         if (playing) {
             c.fill_rect(hx - 2, headerY - 3, 20, 23, t.textValue);
             c.draw_text(songcore::hex2(col).substr(1), hx + 3, headerY + 3,
@@ -92,7 +89,7 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
     }
 
     for (int track = 0; track < TRACK_COUNT; ++track) {
-        const int rowY = y + TOP + track * ROW_PITCH;
+        const int rowY = y + matrix::cell_y(track);
         const Argb rowLabel = (track == cursorRow) ? cursor_mark_ink(t) : t.textParam;
         c.draw_text(std::to_string(track + 1), x, rowY + 8, rowLabel, CHAR_SPACING, FONT_SCALE);
 
@@ -109,7 +106,7 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
 
             const bool cursor = track == cursorRow && col == cursorCol;
             const bool playing = scene == s.playingScene;
-            const int cellX = x + LEFT + col * COL_PITCH;
+            const int cellX = x + matrix::cell_x(col);
             const int cellY = rowY;
 
             // A cell is a complete macro reference. Empty cells stay as plain grey squares, matching
@@ -119,22 +116,22 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
                 // Scene playhead is a column-level indicator: invert the active macro cell and
                 // keep the header indicator above it. Empty cells get the same playhead marker.
                 if (ref.active) {
-                    c.fill_rect(cellX, cellY, CELL_W - 1, CELL_H - 1, t.textValue);
-                    c.draw_text(macro_text(ref), cellX + 3, cellY + 8, t.background,
+                    c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.textValue);
+                    c.draw_text(macro_text(ref), cellX + 5, cellY + 10, t.background,
                                 CHAR_SPACING, FONT_SCALE);
                 } else {
-                    c.fill_rect(cellX + 11, cellY + 13, 8, 8, t.textPlayhead);
+                    c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, t.textPlayhead);
                 }
             } else if (cursor) {
-                c.fill_rect(cellX, cellY, CELL_W - 1, CELL_H - 1, t.rowCursor);
-                c.draw_text(macro_text(ref), cellX + 3, cellY + 8, cursor_cell_ink(t),
+                c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.rowCursor);
+                c.draw_text(macro_text(ref), cellX + 5, cellY + 10, cursor_cell_ink(t),
                             CHAR_SPACING, FONT_SCALE);
             } else if (ref.active) {
-                c.fill_rect(cellX, cellY, CELL_W - 1, CELL_H - 1, t.rowEvery4th);
-                c.draw_text(macro_text(ref), cellX + 3, cellY + 8, selection_cell_ink(t),
+                c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.rowEvery4th);
+                c.draw_text(macro_text(ref), cellX + 5, cellY + 10, selection_cell_ink(t),
                             CHAR_SPACING, FONT_SCALE);
             } else {
-                c.fill_rect(cellX + 11, cellY + 13, 8, 8, t.textEmpty);
+                c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
             }
         }
     }
