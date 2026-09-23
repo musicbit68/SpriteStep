@@ -16,3 +16,10 @@ This source package is based on SPRITESTEP v3 and fixes the build issues found i
 - Confirmed the PortMaster workflow already packages `build/portmaster/spritestep.zip` and uses the `spritestep-build` cross-build container.
 
 A full Android/ARM64 release build was not performed in this environment.
+
+
+## PortMaster follow-up fix
+
+The PortMaster ARM64 build reached the executable link successfully, but the artifact revision guard did not find `SPRITESTEP-UI-V3` after stripping. The UI revision is now held in a directly referenced executable data object (`kSpritestepUiRevision`) and used by the boot banner. The PortMaster verification uses binary-safe fixed-string matching (`grep -a -Fq`) against the stripped artifact.
+
+The Opus `-Waggressive-loop-optimizations` message in `NSQ_del_dec_neon_intr.c` is an upstream compiler warning; it does not stop the build or indicate a SPRITESTEP source error.

@@ -134,7 +134,10 @@ chmod +x "$BIN"
 aarch64-linux-gnu-strip "$BIN"
 
 # The binary itself must carry the same UI revision that the source and build script claim.
-if ! strings "$BIN" | grep -q 'SPRITESTEP-UI-V3'; then
+# Use grep's binary-safe mode rather than relying on the host `strings` implementation. The marker
+# is a referenced const object in app.cpp, so it is part of the executable's retained data even after
+# the aarch64 strip step above.
+if ! grep -a -Fq 'SPRITESTEP-UI-V3' "$BIN"; then
     echo "FAIL: ARM64 binary does not contain SPRITESTEP-UI-V3."
     echo "      The PortMaster artifact was not built from the expected UI revision."
     exit 1

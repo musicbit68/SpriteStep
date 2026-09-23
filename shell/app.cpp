@@ -38,6 +38,11 @@
 using namespace songcore;
 namespace ui = pt::ui;
 
+// Keep the UI revision as a real referenced object in the executable. The PortMaster artifact
+// check inspects the stripped ARM64 binary, so this marker must survive section GC and stripping.
+// PT_UI_REVISION remains a compile-time contract supplied by every shell CMake target.
+static const char kSpritestepUiRevision[] = PT_UI_REVISION;
+
 namespace ptshell {
 
 namespace {
@@ -241,7 +246,7 @@ int run(const AppConfig& cfg) {
     // PT_VERSION_STRING comes from native/cmake/pt_version.cmake, which reads app/build.gradle.kts.
     // No fallback here on purpose: a tree that forgets the define must fail to COMPILE rather than
     // print a version that is quietly a lie.
-    std::printf("SPRITESTEP %s %s\n", PT_VERSION_STRING, PT_UI_REVISION);
+    std::printf("SPRITESTEP %s %s\n", PT_VERSION_STRING, kSpritestepUiRevision);
 
     AudioEngine&  engineRef  = *cfg.engine;
     AudioBackend& audio      = *cfg.audio;
