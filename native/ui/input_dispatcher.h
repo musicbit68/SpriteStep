@@ -247,6 +247,10 @@ class InputDispatcher {
     bool on_sequencer_screen() const;
     void on_l_seq_left();
     void on_l_seq_right();
+    void on_lr_seq_up();
+    void on_lr_seq_down();
+    void on_lr_seq_left();
+    void on_lr_seq_right();
 
     // ── A + D-pad: edit the cell under the cursor ────────────────────────────────────────────────
     // A+LEFT/RIGHT step by one, A+UP/DOWN by the large step (16 for a hex byte, an octave for a

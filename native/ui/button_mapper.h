@@ -269,6 +269,10 @@ void handle_button(const ButtonEvent& e, Dispatcher& d, MapperState& ms, uint64_
             case Button::B:       return;
             case Button::L_SHIFT:
             case Button::R_SHIFT: d.on_l_r(); return;
+            case Button::DPAD_UP:    d.on_lr_seq_up(); return;
+            case Button::DPAD_DOWN:  d.on_lr_seq_down(); return;
+            case Button::DPAD_LEFT:  d.on_lr_seq_left(); return;
+            case Button::DPAD_RIGHT: d.on_lr_seq_right(); return;
             default: break;
         }
     }

@@ -41,8 +41,11 @@ void BanksViewModule::draw(Canvas& c, int x, int y, const BanksViewState& state,
         const int rowY = y + matrix::cell_y(track);
         const int selected = selected_pattern(state, track);
 
-        c.draw_text("?", x + matrix::cell_x(-2) + 14, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
-        c.draw_text("X", x + matrix::cell_x(-1) + 14, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
+        // The shared 37px matrix cannot fit two extra columns to the left without moving the
+        // sixteen pattern columns. Keep the action columns in the left gutter: ? is the first
+        // action marker and X remains immediately beside it.
+        c.draw_text("?", x + 1, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
+        c.draw_text("X", x + 18, rowY + 4, t.textParam, CHAR_SPACING, FONT_SCALE);
 
         const auto& ph = state.playheads[static_cast<size_t>(track)];
         // chainId/chainRow are the handheld UI carrier for bank/pattern. The host now fills these

@@ -64,8 +64,8 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
     // marker. This is especially useful when the current scene is off the visible page.
     if (s.playingScene >= 0) {
         const std::string sceneLabel = "SC" + songcore::hex2(s.playingScene);
-        c.fill_rect(x + WIDTH - 58, y + 3, 52, 25, t.textValue);
-        c.draw_text(sceneLabel, x + WIDTH - 53, y + 8, t.background, CHAR_SPACING, FONT_SCALE);
+        c.fill_rect(x + 420, y + 3, 52, 25, t.textValue);
+        c.draw_text(sceneLabel, x + 425, y + 8, t.background, CHAR_SPACING, FONT_SCALE);
     }
 
     // Scene numbers are deliberately shown as a compact 0..F header.  The active cursor column
@@ -77,14 +77,15 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
         const bool playing = scene == s.playingScene;
         const bool cursor = col == cursorCol;
         const int hx = x + matrix::cell_x(col);
+        const std::string label = songcore::hex2(col).substr(1);
+        const int labelW = Canvas::text_width(label, CHAR_SPACING, FONT_SCALE);
+        const int labelX = hx + (matrix::OCCUPIED_SIZE - labelW) / 2;
         if (playing) {
-            c.fill_rect(hx - 2, headerY - 3, 20, 23, t.textValue);
-            c.draw_text(songcore::hex2(col).substr(1), hx + 3, headerY + 3,
-                        t.background, CHAR_SPACING, FONT_SCALE);
+            c.fill_rect(hx, headerY - 3, matrix::OCCUPIED_SIZE, 23, t.textValue);
+            c.draw_text(label, labelX, headerY + 3, t.background, CHAR_SPACING, FONT_SCALE);
         } else {
             const Argb color = cursor ? cursor_mark_ink(t) : t.textParam;
-            c.draw_text(songcore::hex2(col).substr(1), hx, headerY, color,
-                        CHAR_SPACING, FONT_SCALE);
+            c.draw_text(label, labelX, headerY, color, CHAR_SPACING, FONT_SCALE);
         }
     }
 

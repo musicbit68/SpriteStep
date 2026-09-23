@@ -14,6 +14,8 @@ using songcore::PhraseStep;
 
 
 constexpr int BOTTOM_Y = 352;
+constexpr Argb PATTERN_CURSOR_RED = 0xFFFF0000;
+constexpr Argb INACTIVE_STEP_COLOR = 0xFF606060;
 
 bool is_fx_parameter(PatternParameter p) {
     return p == PatternParameter::PAN || p == PatternParameter::SLIDE ||
@@ -27,18 +29,18 @@ bool is_fx_parameter(PatternParameter p) {
 const char* PatternEditorModule::parameter_label(PatternParameter p) {
     switch (p) {
         case PatternParameter::INSTRUMENT: return "I";
-        case PatternParameter::NOTE: return "NOTE";
-        case PatternParameter::VOLUME: return "VOL";
-        case PatternParameter::PAN: return "PAN";
-        case PatternParameter::SLIDE: return "SLI";
-        case PatternParameter::CONDITION: return "CHA";
-        case PatternParameter::ARPEGGIATOR: return "ARP";
+        case PatternParameter::NOTE: return "N";
+        case PatternParameter::VOLUME: return "V";
+        case PatternParameter::PAN: return "P";
+        case PatternParameter::SLIDE: return "S";
+        case PatternParameter::CONDITION: return "C";
+        case PatternParameter::ARPEGGIATOR: return "A";
         case PatternParameter::M1: return "M1";
         case PatternParameter::M2: return "M2";
         case PatternParameter::M3: return "M3";
         case PatternParameter::M4: return "M4";
-        case PatternParameter::REVERB: return "REV";
-        case PatternParameter::DELAY: return "DEL";
+        case PatternParameter::REVERB: return "R";
+        case PatternParameter::DELAY: return "D";
         case PatternParameter::WAIT: return "WAI";
         case PatternParameter::TRIGLESS: return "TRG";
         case PatternParameter::MORE: return "MORE";
@@ -228,9 +230,13 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const int sx = x + matrix::cell_x(step);
             const bool inPattern = p && step < p->clamped_length();
             if (!inPattern) {
+                // Steps beyond LEN remain visible as a darker, inactive grid.  They are still
+                // useful as an addressable 16-step frame, but are not part of playback.
                 const int mx = sx + matrix::empty_offset();
                 const int my = rowY + matrix::empty_offset();
-                c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
+                c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, INACTIVE_STEP_COLOR);
+                if (selectedTrack && step == s.cursorStep)
+                    c.stroke_rect(sx - 1, rowY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, PATTERN_CURSOR_RED, 1);
                 continue;
             }
 
@@ -242,14 +248,32 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             if (active || cursor) {
                 const Argb fill = cursor ? t.rowCursor : t.textValue;
                 c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, fill);
-                const std::string value = pattern_parameter_text(*p, step, s.parameter);
-                c.draw_text(value, sx + 2, rowY + 9,
-                            cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+
+                // NOTE is always shown as two compact rows inside an occupied step: pitch name
+                // on top (A#, C-, etc.) and octave below. This keeps the 35px cell readable without
+                // falling back to the cramped three-character "A#4" string. FX-only steps retain
+                // the selected parameter's normal single-line value.
+                if (data.note != songcore::Note::EMPTY()) {
+                    const std::string pitch = songcore::NOTE_NAMES[data.note.pitch];
+                    c.draw_text(pitch, sx, rowY + 1,
+                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                    c.draw_text(std::to_string(data.note.octave), sx + 10, rowY + 18,
+                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                } else {
+                    const std::string value = pattern_parameter_text(*p, step, s.parameter);
+                    c.draw_text(value, sx + 2, rowY + 9,
+                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                }
             } else {
                 const int mx = sx + matrix::empty_offset();
                 const int my = rowY + matrix::empty_offset();
                 c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
             }
+
+            // The editing cursor is an outline outside the 35px cell. It never obscures the
+            // note/parameter text and is therefore still obvious on an occupied step.
+            if (cursor)
+                c.stroke_rect(sx - 1, rowY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, PATTERN_CURSOR_RED, 1);
             // FMS-style playback markers. Every step in the active pattern gets a small square,
             // not only steps containing notes: this makes the transport position visible even during
             // rests. The actual playhead square grows from 9px to 13px and becomes filled, so the
@@ -262,21 +286,18 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 const int my = rowY + matrix::OCCUPIED_SIZE - marker - 3;
                 c.fill_rect(mx, my, marker, marker, t.textPlayhead);
                 c.stroke_rect(mx - 1, my - 1, marker + 2, marker + 2, t.textValue, 1);
-            } else {
-                constexpr int marker = 9;
-                const int mx = sx + (matrix::OCCUPIED_SIZE - marker) / 2;
-                const int my = rowY + matrix::OCCUPIED_SIZE - marker - 3;
-                const Argb markerInk = active ? t.textPlayhead : matrix::EMPTY_COLOR;
-                c.stroke_rect(mx, my, marker, marker, markerInk, 1);
             }
         }
 
         if (p) {
             const int last = p->clamped_length() - 1;
-            const int tx = x + matrix::cell_x(last) + 13;
-            const int ty = rowY - 5;
-            for (int k = 0; k < 3; ++k)
-                c.fill_rect(tx - k * 4, ty + k * 2, 8 + k * 2, 2, t.textParam);
+            const int tx = x + matrix::cell_x(last) + matrix::OCCUPIED_SIZE + 2;
+            const int ty = rowY + 13;
+            // Small right-pointing END triangle. Moving LEN moves this marker with the final
+            // active column; steps after it are rendered with INACTIVE_STEP_COLOR.
+            c.fill_rect(tx, ty, 4, 3, t.textParam);
+            c.fill_rect(tx + 4, ty - 2, 4, 7, t.textParam);
+            c.fill_rect(tx + 8, ty - 4, 4, 11, t.textParam);
         }
     }
 
@@ -285,8 +306,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
         PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CONDITION,
         PatternParameter::ARPEGGIATOR, PatternParameter::M1, PatternParameter::M2,
         PatternParameter::M3, PatternParameter::M4, PatternParameter::REVERB,
-        PatternParameter::DELAY, PatternParameter::WAIT, PatternParameter::TRIGLESS,
-        PatternParameter::MORE
+        PatternParameter::DELAY
     };
     int px = x + 12;
     for (PatternParameter p : params) {

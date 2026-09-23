@@ -385,6 +385,48 @@ bool handheld_major_view(const AppState& s) {
 void InputDispatcher::on_l_seq_left() { if (s_.currentScreen == ScreenType::PATTERN) seq_parameter_step(-1); }
 void InputDispatcher::on_l_seq_right() { if (s_.currentScreen == ScreenType::PATTERN) seq_parameter_step(+1); }
 
+void InputDispatcher::on_lr_seq_up() {
+    if (s_.currentScreen != ScreenType::PATTERN || !s_.project) return;
+    auto& track = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
+    const int before = std::max(1, static_cast<int>(track.step_duration_multiplier));
+    const int after = std::min(3, before + 1);
+    if (after != before) { track.step_duration_multiplier = static_cast<uint8_t>(after); mark_modified(); }
+}
+
+void InputDispatcher::on_lr_seq_down() {
+    if (s_.currentScreen != ScreenType::PATTERN || !s_.project) return;
+    auto& track = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
+    const int before = std::max(1, static_cast<int>(track.step_duration_multiplier));
+    const int after = std::max(1, before - 1);
+    if (after != before) { track.step_duration_multiplier = static_cast<uint8_t>(after); mark_modified(); }
+}
+
+void InputDispatcher::on_lr_seq_left() {
+    if (s_.currentScreen != ScreenType::PATTERN || !s_.project) return;
+    const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+    const int bank = std::clamp(s_.seqBank, 0, songcore::SEQUENCER_BANKS - 1);
+    const int pat = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(track)], 0, songcore::SEQUENCER_PATTERNS - 1);
+    auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+    const int before = pattern.clamped_length();
+    const int after = std::max(1, before - 1);
+    if (after != before) {
+        pattern.length = static_cast<uint8_t>(after);
+        s_.seqPatternCursorStep = std::min(s_.seqPatternCursorStep, after - 1);
+        mark_modified();
+    }
+}
+
+void InputDispatcher::on_lr_seq_right() {
+    if (s_.currentScreen != ScreenType::PATTERN || !s_.project) return;
+    const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+    const int bank = std::clamp(s_.seqBank, 0, songcore::SEQUENCER_BANKS - 1);
+    const int pat = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(track)], 0, songcore::SEQUENCER_PATTERNS - 1);
+    auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+    const int before = pattern.clamped_length();
+    const int after = std::min(songcore::SEQUENCER_MAX_STEPS, before + 1);
+    if (after != before) { pattern.length = static_cast<uint8_t>(after); mark_modified(); }
+}
+
 int InputDispatcher::cursor_row() const {
     switch (s_.currentScreen) {
         case ScreenType::TABLE:  return s_.tableCursorRow;
@@ -1918,7 +1960,8 @@ void InputDispatcher::seq_cycle_view(int direction) {
 }
 
 void InputDispatcher::seq_parameter_step(int direction) {
-    constexpr int count = 16;
+    // The compact Pattern footer exposes only the parameters that fit on the handheld display.
+    constexpr int count = 13;
     int p = (s_.seqPatternParameter + direction) % count;
     if (p < 0) p += count;
     s_.seqPatternParameter = p;

@@ -564,7 +564,9 @@ void TrackerLayout::draw_right_bar(Canvas& c, const AppState& s) const {
 
     // Tempo belongs to the page header, not the matrix/right rail.
     const int tempoY = EDITOR_Y + TEXT_PADDING;
-    c.draw_text("T>" + std::to_string(p.tempo), SIDE_SPACER + 500, tempoY,
+    const std::string tempo = "T>" + std::to_string(p.tempo);
+    const int tempoW = Canvas::text_width(tempo, CHAR_SPACING, FONT_SCALE);
+    c.draw_text(tempo, DESIGN_W - SIDE_SPACER - tempoW, tempoY,
                 t.textValue, CHAR_SPACING, FONT_SCALE);
 
     NavigationMapState ns;
