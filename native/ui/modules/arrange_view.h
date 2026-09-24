@@ -23,6 +23,7 @@ struct ArrangeViewState {
     int page = 0;       // 0..7, sixteen scene columns per page
     int cursorRow = 0;  // 0..7 track
     int cursorColumn = 0; // 0..15 scene within page
+    bool pageSelector = false;
     int playingScene = -1; // absolute scene index; -1 means stopped/not visible
     Theme theme = theme_classic();
 };

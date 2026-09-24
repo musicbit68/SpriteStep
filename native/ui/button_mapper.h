@@ -152,6 +152,10 @@ void handle_button(const ButtonEvent& e, Dispatcher& d, MapperState& ms, uint64_
             // through the effect grid, and let go on the one you want.
             d.on_a_released();
         }
+        if (e.button == Button::B && m.l) {
+            d.on_l_b_released();
+            return;
+        }
         if (e.button == Button::B) {
             // The DEFERRED single-B: it went down inside the EQ editor and no B-combo intervened, so
             // the CLOSE fires now rather than on the press. Mirror of the A latch above.

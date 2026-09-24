@@ -19,31 +19,70 @@ constexpr Argb INACTIVE_STEP_COLOR = 0xFF606060;
 
 bool is_fx_parameter(PatternParameter p) {
     return p == PatternParameter::PAN || p == PatternParameter::SLIDE ||
-           p == PatternParameter::CONDITION || p == PatternParameter::ARPEGGIATOR ||
-           p == PatternParameter::M1 || p == PatternParameter::M2 || p == PatternParameter::M3 ||
-           p == PatternParameter::M4 || p == PatternParameter::REVERB || p == PatternParameter::DELAY;
+           p == PatternParameter::CHANCE || p == PatternParameter::ARPEGGIATOR ||
+           p == PatternParameter::FILTER_FREQUENCY || p == PatternParameter::RESONANCE ||
+           p == PatternParameter::DRIVE || p == PatternParameter::CRUSH ||
+           p == PatternParameter::DOWNSAMPLE || p == PatternParameter::REVERSE ||
+           p == PatternParameter::REVERB || p == PatternParameter::DELAY;
+}
+
+int crush_parameter_value(const PhraseStep& step, PatternParameter p) {
+    int slot = 0;
+    for (int i = 1; i <= 3; ++i)
+        if (songcore::step_fx_type(step, i) == songcore::FX_CRU) { slot = i; break; }
+    if (!slot) return 0;
+    const int value = songcore::step_fx_value(step, slot);
+    return p == PatternParameter::CRUSH ? ((value >> 4) & 0x0F) : (value & 0x0F);
 }
 
 } // namespace
 
 const char* PatternEditorModule::parameter_label(PatternParameter p) {
     switch (p) {
-        case PatternParameter::INSTRUMENT: return "I";
         case PatternParameter::NOTE: return "N";
+        case PatternParameter::INSTRUMENT: return "I";
         case PatternParameter::VOLUME: return "V";
         case PatternParameter::PAN: return "P";
         case PatternParameter::SLIDE: return "S";
-        case PatternParameter::CONDITION: return "C";
+        case PatternParameter::CHANCE: return "C";
         case PatternParameter::ARPEGGIATOR: return "A";
-        case PatternParameter::M1: return "M1";
-        case PatternParameter::M2: return "M2";
-        case PatternParameter::M3: return "M3";
-        case PatternParameter::M4: return "M4";
+        case PatternParameter::FILTER_FREQUENCY: return "FQ";
+        case PatternParameter::RESONANCE: return "RS";
+        case PatternParameter::DRIVE: return "DV";
+        case PatternParameter::CRUSH: return "CR";
+        case PatternParameter::DOWNSAMPLE: return "DS";
+        case PatternParameter::REVERSE: return "RV";
         case PatternParameter::REVERB: return "R";
         case PatternParameter::DELAY: return "D";
+        case PatternParameter::CONDITION: return "C";
         case PatternParameter::WAIT: return "WAI";
         case PatternParameter::TRIGLESS: return "TRG";
         case PatternParameter::MORE: return "MORE";
+    }
+    return "";
+}
+
+const char* PatternEditorModule::parameter_name(PatternParameter p) {
+    switch (p) {
+        case PatternParameter::NOTE: return "Note";
+        case PatternParameter::INSTRUMENT: return "Instrument";
+        case PatternParameter::VOLUME: return "Volume";
+        case PatternParameter::PAN: return "Pan";
+        case PatternParameter::SLIDE: return "Slide";
+        case PatternParameter::CHANCE: return "Chance";
+        case PatternParameter::ARPEGGIATOR: return "Arpeggio";
+        case PatternParameter::FILTER_FREQUENCY: return "Filter Frequency";
+        case PatternParameter::RESONANCE: return "Resonance";
+        case PatternParameter::DRIVE: return "Drive";
+        case PatternParameter::CRUSH: return "Crush";
+        case PatternParameter::DOWNSAMPLE: return "Downsample";
+        case PatternParameter::REVERSE: return "Reverse";
+        case PatternParameter::REVERB: return "Reverb";
+        case PatternParameter::DELAY: return "Delay";
+        case PatternParameter::CONDITION: return "Chance";
+        case PatternParameter::WAIT: return "Wait";
+        case PatternParameter::TRIGLESS: return "Trigless";
+        case PatternParameter::MORE: return "More";
     }
     return "";
 }
@@ -52,12 +91,14 @@ int PatternEditorModule::fx_code(PatternParameter p) {
     switch (p) {
         case PatternParameter::PAN: return songcore::FX_PAN;
         case PatternParameter::SLIDE: return songcore::FX_PSL;
-        case PatternParameter::CONDITION: return songcore::FX_NONE;
+        case PatternParameter::CHANCE: return songcore::FX_CHA;
         case PatternParameter::ARPEGGIATOR: return songcore::FX_ARPEGGIO;
-        case PatternParameter::M1: return songcore::FX_CCA;
-        case PatternParameter::M2: return songcore::FX_CCB;
-        case PatternParameter::M3: return songcore::FX_CCC;
-        case PatternParameter::M4: return songcore::FX_CCD;
+        case PatternParameter::FILTER_FREQUENCY: return songcore::FX_CUT;
+        case PatternParameter::RESONANCE: return songcore::FX_RES;
+        case PatternParameter::DRIVE: return songcore::FX_DRV;
+        case PatternParameter::CRUSH: return songcore::FX_CRU;
+        case PatternParameter::DOWNSAMPLE: return songcore::FX_CRU;
+        case PatternParameter::REVERSE: return songcore::FX_BCK;
         case PatternParameter::REVERB: return songcore::FX_RSEND;
         case PatternParameter::DELAY: return songcore::FX_DSEND;
         default: return songcore::FX_NONE;
@@ -110,6 +151,8 @@ int PatternEditorModule::parameter_value(const PhraseStep& step, PatternParamete
     if (p == PatternParameter::VOLUME) return step.volume;
     if (p == PatternParameter::NOTE)
         return step.note == songcore::Note::EMPTY() ? -1 : songcore::note_to_midi(step.note);
+    if (p == PatternParameter::CRUSH || p == PatternParameter::DOWNSAMPLE)
+        return crush_parameter_value(step, p);
     if (is_fx_parameter(p)) {
         const int slot = fx_slot(step, fx_code(p));
         return slot ? songcore::step_fx_value(step, slot) : 0;
@@ -132,6 +175,15 @@ void PatternEditorModule::set_parameter(PhraseStep& step, PatternParameter p, in
         case PatternParameter::INSTRUMENT: step.instrument = value; return;
         case PatternParameter::VOLUME: step.volume = value; return;
         case PatternParameter::NOTE: step.note = songcore::note_from_midi(std::clamp(value, 0, 127)); return;
+        case PatternParameter::CRUSH:
+        case PatternParameter::DOWNSAMPLE: {
+            const int slot = ensure_fx_slot(step, songcore::FX_CRU);
+            int packed = songcore::step_fx_value(step, slot);
+            if (p == PatternParameter::CRUSH) packed = (packed & 0x0F) | ((value & 0x0F) << 4);
+            else packed = (packed & 0xF0) | (value & 0x0F);
+            songcore::step_set_fx_value(step, slot, packed);
+            return;
+        }
         default: break;
     }
     if (is_fx_parameter(p)) {
@@ -162,6 +214,16 @@ void PatternEditorModule::clear_parameter(PhraseStep& step, PatternParameter p) 
     if (p == PatternParameter::NOTE) { step.note = songcore::Note::EMPTY(); return; }
     if (p == PatternParameter::INSTRUMENT) { step.instrument = 0; return; }
     if (p == PatternParameter::VOLUME) { step.volume = 0x7F; return; }
+    if (p == PatternParameter::CRUSH || p == PatternParameter::DOWNSAMPLE) {
+        const int slot = fx_slot(step, songcore::FX_CRU);
+        if (!slot) return;
+        int packed = songcore::step_fx_value(step, slot);
+        if (p == PatternParameter::CRUSH) packed &= 0x0F;
+        else packed &= 0xF0;
+        songcore::step_set_fx_value(step, slot, packed);
+        if (packed == 0) songcore::step_set_fx(step, slot, songcore::FX_NONE, 0);
+        return;
+    }
     if (is_fx_parameter(p)) {
         const int slot = fx_slot(step, fx_code(p));
         if (slot) songcore::step_set_fx(step, slot, songcore::FX_NONE, 0);
@@ -182,6 +244,8 @@ std::string PatternEditorModule::parameter_text(const PhraseStep& step, PatternP
         return step.note == songcore::Note::EMPTY() ? "---" : note_name(step.note);
     if (p == PatternParameter::INSTRUMENT) return hex2(step.instrument);
     if (p == PatternParameter::VOLUME) return hex2(step.volume);
+    if (p == PatternParameter::CRUSH || p == PatternParameter::DOWNSAMPLE)
+        return hex1(crush_parameter_value(step, p));
     if (is_fx_parameter(p)) {
         const int slot = fx_slot(step, fx_code(p));
         return slot ? hex2(songcore::step_fx_value(step, slot)) : "--";
@@ -224,7 +288,8 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
 
         const int multiplier = std::max(1, s.stepDurationMultipliers[static_cast<size_t>(track)]);
         c.draw_text(std::to_string(multiplier), x + 2, rowY + 8,
-                    selectedTrack ? cursor_mark_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
+                    (selectedTrack && s.rateLengthHighlight) ? PATTERN_CURSOR_RED :
+                        (selectedTrack ? cursor_mark_ink(t) : t.textParam), CHAR_SPACING, FONT_SCALE);
 
         for (int step = 0; step < STEP_COUNT; ++step) {
             const int sx = x + matrix::cell_x(step);
@@ -270,6 +335,29 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
             }
 
+            // Four-quadrant conditional trigger indicator. The current condition model stores
+            // occurrence/total (e.g. 1/3 as 0x13), so the visual marks the configured occurrence
+            // within the four available repeat positions without changing the playback semantics.
+            const uint8_t condition = p->conditions[si];
+            if (condition != 0) {
+                const int occurrence = (condition >> 4) & 0x0F;
+                const int count = condition & 0x0F;
+                constexpr int q = 7;
+                constexpr int gap = 1;
+                constexpr int qi = 2;
+                const int qx = sx + matrix::OCCUPIED_SIZE - (q * 2 + gap) - 1;
+                const int qy = rowY + matrix::OCCUPIED_SIZE - (q * 2 + gap) - 1;
+                for (int r = 0; r < 4; ++r) {
+                    const int qcol = r & 1;
+                    const int qrow = r >> 1;
+                    const bool configured = (r + 1 == occurrence) && (r + 1 <= count) && (r < 4);
+                    const int xx = qx + qcol * (q + gap);
+                    const int yy = qy + qrow * (q + gap);
+                    c.fill_rect(xx, yy, q, q, configured ? 0xFF000000 : 0xFFA0A0A0);
+                    c.stroke_rect(xx, yy, q, q, 0xFF000000, qi);
+                }
+            }
+
             // The editing cursor is an outline outside the 35px cell. It never obscures the
             // note/parameter text and is therefore still obvious on an occupied step.
             if (cursor)
@@ -283,7 +371,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             if (playingStep) {
                 constexpr int marker = 13;
                 const int mx = sx + (matrix::OCCUPIED_SIZE - marker) / 2;
-                const int my = rowY + matrix::OCCUPIED_SIZE - marker - 3;
+                const int my = rowY + matrix::empty_offset() - (marker - matrix::EMPTY_SIZE) / 2;
                 c.fill_rect(mx, my, marker, marker, t.textPlayhead);
                 c.stroke_rect(mx - 1, my - 1, marker + 2, marker + 2, t.textValue, 1);
             }
@@ -295,19 +383,23 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const int ty = rowY + 13;
             // Small right-pointing END triangle. Moving LEN moves this marker with the final
             // active column; steps after it are rendered with INACTIVE_STEP_COLOR.
-            c.fill_rect(tx, ty, 4, 3, t.textParam);
-            c.fill_rect(tx + 4, ty - 2, 4, 7, t.textParam);
-            c.fill_rect(tx + 8, ty - 4, 4, 11, t.textParam);
+            const Argb triangleInk = s.rateLengthHighlight ? PATTERN_CURSOR_RED : t.textParam;
+            c.fill_rect(tx, ty, 4, 3, triangleInk);
+            c.fill_rect(tx + 4, ty - 2, 4, 7, triangleInk);
+            c.fill_rect(tx + 8, ty - 4, 4, 11, triangleInk);
         }
     }
 
     static constexpr PatternParameter params[] = {
-        PatternParameter::INSTRUMENT, PatternParameter::NOTE, PatternParameter::VOLUME,
-        PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CONDITION,
-        PatternParameter::ARPEGGIATOR, PatternParameter::M1, PatternParameter::M2,
-        PatternParameter::M3, PatternParameter::M4, PatternParameter::REVERB,
+        PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
+        PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
+        PatternParameter::ARPEGGIATOR, PatternParameter::FILTER_FREQUENCY,
+        PatternParameter::RESONANCE, PatternParameter::DRIVE, PatternParameter::CRUSH,
+        PatternParameter::DOWNSAMPLE, PatternParameter::REVERSE, PatternParameter::REVERB,
         PatternParameter::DELAY
     };
+    c.draw_text(parameter_name(s.parameter), x + 12, y + 337,
+                t.textParam, CHAR_SPACING, FONT_SCALE);
     int px = x + 12;
     for (PatternParameter p : params) {
         const std::string label = parameter_label(p);

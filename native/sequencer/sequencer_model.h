@@ -2,6 +2,7 @@
 #define SPRITESTEP_SEQUENCER_MODEL_H
 
 #include "../songcore/model.h"
+#include <algorithm>
 
 namespace sequencer {
 
@@ -63,7 +64,7 @@ inline Pattern& pattern_at(Project& project, int track, int bank, int pattern) {
 }
 
 inline int step_duration_multiplier(const Track& track) {
-    return track.step_duration_multiplier < 1 ? 1 : track.step_duration_multiplier;
+    return std::clamp(static_cast<int>(track.step_duration_multiplier), 1, 8);
 }
 
 inline int64_t pattern_duration_base_steps(const Pattern& pattern, const Track& track) {

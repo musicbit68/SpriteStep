@@ -13,19 +13,23 @@
 namespace pt::ui {
 
 enum class PatternParameter {
-    INSTRUMENT,
     NOTE,
+    INSTRUMENT,
     VOLUME,
     PAN,
     SLIDE,
-    CONDITION,
+    CHANCE,
     ARPEGGIATOR,
-    M1,
-    M2,
-    M3,
-    M4,
+    FILTER_FREQUENCY,
+    RESONANCE,
+    DRIVE,
+    CRUSH,
+    DOWNSAMPLE,
+    REVERSE,
     REVERB,
     DELAY,
+    // Kept for compatibility with the underlying pattern metadata/editor plumbing.
+    CONDITION,
     WAIT,
     TRIGLESS,
     MORE
@@ -45,6 +49,7 @@ struct PatternEditorState {
     Theme theme = theme_classic();
     bool isPlaying = false;
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
+    bool rateLengthHighlight = false;
 };
 
 struct PatternEditResult {
@@ -77,6 +82,7 @@ public:
 
 private:
     static const char* parameter_label(PatternParameter p);
+    static const char* parameter_name(PatternParameter p);
     static int fx_code(PatternParameter p);
     static int fx_slot(const sequencer::PatternStep& step, int code);
     static int ensure_fx_slot(sequencer::PatternStep& step, int code);

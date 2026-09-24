@@ -50,8 +50,7 @@ void randomize_step(PatternStep& step, uint32_t& state) {
 }
 
 void clear_pattern(Pattern& pattern) {
-    for (auto& step : pattern.steps)
-        step = PatternStep{};
+    pattern = Pattern{};
 }
 
 } // namespace

@@ -12,7 +12,7 @@
 
 namespace pt::ui {
 
-// Cursor columns: -2 = randomize, -1 = clear, 0..15 = pattern slot.
+// Cursor columns: -1 = randomize, 0..15 = pattern slot.
 struct BanksViewState {
     int bank = 0;
     std::array<int, sequencer::TRACK_COUNT> selectedPatterns{};
@@ -57,9 +57,7 @@ public:
     // which 16 slots are shown, while each row remembers its selected slot.
     void move(BanksViewState& state, int dx, int dy) const;
 
-    // The exact handheld gestures specified for BANKS:
-    //   B+LEFT on ? / X / pattern = track-local randomize / clear / cue.
-    //   A+LEFT on ? / X / pattern = all-track randomize / clear / cue column.
+    // BANKS action columns: ? is randomize. The X clear column was removed from the handheld UI.
     BanksActionResult activate_b(BanksViewState& state, sequencer::Project& project) const;
     BanksActionResult activate_a(BanksViewState& state, sequencer::Project& project) const;
 

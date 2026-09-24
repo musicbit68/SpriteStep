@@ -117,19 +117,24 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
                 // Scene playhead is a column-level indicator: invert the active macro cell and
                 // keep the header indicator above it. Empty cells get the same playhead marker.
                 if (ref.active) {
-                    c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.textValue);
-                    c.draw_text(macro_text(ref), cellX + 5, cellY + 10, t.background,
+                    c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
+                    c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
                                 CHAR_SPACING, FONT_SCALE);
                 } else {
                     c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, t.textPlayhead);
                 }
             } else if (cursor) {
-                c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.rowCursor);
-                c.draw_text(macro_text(ref), cellX + 5, cellY + 10, cursor_cell_ink(t),
-                            CHAR_SPACING, FONT_SCALE);
+                if (ref.active) {
+                    c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
+                    c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
+                                CHAR_SPACING, FONT_SCALE);
+                } else {
+                    c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
+                }
+                c.stroke_rect(cellX - 1, cellY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, 0xFFFF0000, 1);
             } else if (ref.active) {
-                c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.rowEvery4th);
-                c.draw_text(macro_text(ref), cellX + 5, cellY + 10, selection_cell_ink(t),
+                c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
+                c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
                             CHAR_SPACING, FONT_SCALE);
             } else {
                 c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
@@ -143,12 +148,25 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
     for (int p = 0; p < SCENE_PAGE_COUNT; ++p) {
         const int px = x + LEFT + 120 + p * 24;
         if (p == page) {
-            c.fill_rect(px - 2, y + FOOTER_Y - 4, 20, 27, t.rowCursor);
-            c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
-                        cursor_cell_ink(t), CHAR_SPACING, FONT_SCALE);
+            if (s.pageSelector) {
+                c.fill_rect(px - 2, y + FOOTER_Y - 4, 20, 27, 0xFFFFFFFF);
+                c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
+                            0xFF000000, CHAR_SPACING, FONT_SCALE);
+                c.stroke_rect(px - 3, y + FOOTER_Y - 5, 22, 29, 0xFFFF0000, 1);
+            } else {
+                c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
+                            0xFFFFFFFF, CHAR_SPACING, FONT_SCALE);
+            }
         } else {
+            const bool filledPage = [&] {
+                const int first = p * SCENES_PER_PAGE;
+                const int last = first + SCENES_PER_PAGE;
+                for (int scene = first; scene < last && scene < static_cast<int>(s.sequencer.scenes.size()); ++scene)
+                    if (!scene_is_empty(s.sequencer.scenes[static_cast<size_t>(scene)])) return true;
+                return false;
+            }();
             c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
-                        t.textParam, CHAR_SPACING, FONT_SCALE);
+                        filledPage ? t.textValue : t.textEmpty, CHAR_SPACING, FONT_SCALE);
         }
     }
 }

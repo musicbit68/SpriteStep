@@ -70,6 +70,31 @@ int main() {
     assert(result.modified);
     assert(p.trigless[2] == 0);
 
+
+    state.parameter = PatternParameter::CHANCE;
+    result = module.handle_input(p, state, InputAction::set_value(0x55));
+    assert(result.modified);
+    assert(step_has_fx(p.steps[2], FX_CHA));
+    assert(PatternEditorModule::parameter_value(p.steps[2], PatternParameter::CHANCE) == 0x55);
+
+    state.parameter = PatternParameter::CRUSH;
+    result = module.handle_input(p, state, InputAction::set_value(0x0A));
+    assert(result.modified);
+    state.parameter = PatternParameter::DOWNSAMPLE;
+    result = module.handle_input(p, state, InputAction::set_value(0x05));
+    assert(result.modified);
+    int cruSlot = 0;
+    for (int slot = 1; slot <= 3; ++slot) if (step_fx_type(p.steps[2], slot) == FX_CRU) cruSlot = slot;
+    assert(cruSlot != 0);
+    assert(step_fx_value(p.steps[2], cruSlot) == 0xA5);
+    assert(PatternEditorModule::parameter_value(p.steps[2], PatternParameter::CRUSH) == 0x0A);
+    assert(PatternEditorModule::parameter_value(p.steps[2], PatternParameter::DOWNSAMPLE) == 0x05);
+
+    state.parameter = PatternParameter::REVERSE;
+    result = module.handle_input(p, state, InputAction::set_value(0x7F));
+    assert(result.modified);
+    assert(step_has_fx(p.steps[2], FX_BCK));
+
     state.parameter = PatternParameter::VOLUME;
     result = module.handle_input(p, state, InputAction::set_value(0x40));
     assert(result.modified);

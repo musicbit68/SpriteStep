@@ -93,15 +93,20 @@ struct AppState {
     std::array<sequencer::TrackCue, songcore::SEQUENCER_TRACKS> seqCues{};
     int seqPlayingScene = -1;
     int seqBanksCursorTrack = 0;
-    int seqBanksCursorColumn = 0; // -2 = ?, -1 = X, 0..F = pattern
+    int seqBanksCursorColumn = 0; // -1 = ?, 0..F = pattern
     bool seqBanksBankSelector = false;
     int seqPatternTrack = 0;
     int seqPatternCursorStep = 0;
-    int seqPatternParameter = 1; // PatternParameter::NOTE
+    int seqPatternParameter = 0; // PatternParameter::NOTE
     int seqArrangePage = 0;
     int seqArrangeCursorRow = 0;
     int seqArrangeCursorColumn = 0;
+    bool seqArrangePageSelector = false;
+    bool seqPatternRateLengthHighlight = false;
     bool seqStepClipboardValid = false;
+    bool seqPatternClipboardValid = false;
+    sequencer::Pattern seqPatternClipboard{};
+    int seqPatternClipboardTrack = -1;
     songcore::PhraseStep seqStepClipboard{};
     uint8_t seqStepClipboardCondition = 0;
     uint8_t seqStepClipboardWaitPPQN = 0;

@@ -247,6 +247,7 @@ class InputDispatcher {
     bool on_sequencer_screen() const;
     void on_l_seq_left();
     void on_l_seq_right();
+    void on_l_b_released();
     void on_lr_seq_up();
     void on_lr_seq_down();
     void on_lr_seq_left();

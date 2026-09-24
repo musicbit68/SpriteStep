@@ -196,7 +196,8 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.playhead = s.playheads[ps.track];
                 std::copy(std::begin(s.playheads), std::end(s.playheads), std::begin(ps.playheads));
                 ps.cursorStep = s.seqPatternCursorStep;
-                ps.parameter = static_cast<PatternParameter>(std::clamp(s.seqPatternParameter, 0, 15));
+                ps.parameter = static_cast<PatternParameter>(std::clamp(s.seqPatternParameter, 0, 14));
+                ps.rateLengthHighlight = s.seqPatternRateLengthHighlight;
                 ps.theme = t;
                 ps.isPlaying = s.isPlaying;
                 pattern_.draw(c, moduleX, EDITOR_Y, ps);
@@ -225,6 +226,7 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 as.page = s.seqArrangePage;
                 as.cursorRow = s.seqArrangeCursorRow;
                 as.cursorColumn = s.seqArrangeCursorColumn;
+                as.pageSelector = s.seqArrangePageSelector;
                 as.playingScene = s.seqPlayingScene;
                 as.theme = t;
                 arrange_.draw(c, moduleX, EDITOR_Y, as);
