@@ -112,8 +112,6 @@ void BanksViewModule::move(BanksViewState& state, int dx, int dy) const {
             state.selectedPatterns[static_cast<size_t>(state.cursorTrack)] = state.cursorColumn;
     }
 
-    if (dy > 0 && state.cursorTrack == sequencer::TRACK_COUNT - 1 && dx == 0)
-        state.bankSelector = true;
 }
 
 BanksActionResult BanksViewModule::activate_b(BanksViewState& state, sequencer::Project& project) const {

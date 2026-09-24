@@ -314,11 +314,11 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 const Argb fill = cursor ? t.rowCursor : t.textValue;
                 c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, fill);
 
-                // NOTE is always shown as two compact rows inside an occupied step: pitch name
-                // on top (A#, C-, etc.) and octave below. This keeps the 35px cell readable without
-                // falling back to the cramped three-character "A#4" string. FX-only steps retain
-                // the selected parameter's normal single-line value.
-                if (data.note != songcore::Note::EMPTY()) {
+                // Only the NOTE parameter uses the two-line pitch display.  When another
+                // parameter is selected, the cell must show THAT parameter's value even when the
+                // step also contains a note.  Otherwise every occupied cell looks like a note and
+                // it becomes impossible to tell which parameter is being edited.
+                if (s.parameter == PatternParameter::NOTE && data.note != songcore::Note::EMPTY()) {
                     const std::string pitch = songcore::NOTE_NAMES[data.note.pitch];
                     c.draw_text(pitch, sx, rowY + 1,
                                 cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);

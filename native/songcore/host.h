@@ -1348,6 +1348,13 @@ class SongcoreHost {
         poll_handheld();
     }
 
+    void play_handheld_banks(int bank, const std::array<int, songcore::SEQUENCER_TRACKS>& patterns) {
+        stop();
+        sync_clock();
+        handheldAdapter_.start_banks(bank, patterns, seq_.clock());
+        poll_handheld();
+    }
+
     void stop_handheld() {
         handheldAdapter_.stop();
         if (engine_) {

@@ -58,3 +58,8 @@ The persistence test is `sequencer_project_io_tests.cpp`:
 c++ -std=c++17 -I native native/sequencer/sequencer_project_io_tests.cpp -o sequencer_project_io_tests
 ./sequencer_project_io_tests
 ```
+
+
+### BANKS transport
+
+BANKS is the primary live-performance transport. Starting playback from BANKS runs the selected pattern for each track in the selected bank and loops those patterns indefinitely; it does not require any Arrange scenes. ARRANGE playback remains a separate optional scene-based transport for building longer song forms.

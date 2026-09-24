@@ -2061,14 +2061,37 @@ void InputDispatcher::seq_a_action() {
         const int pat = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(track)], 0, songcore::SEQUENCER_PATTERNS - 1);
         auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(s_.seqBank)].patterns[static_cast<size_t>(pat)];
         const size_t index = static_cast<size_t>(std::clamp(s_.seqPatternCursorStep, 0, pattern.clamped_length() - 1));
-        // A edits the currently selected Pattern parameter. Do NOT reset the parameter to NOTE here:
-        // L1+LEFT/RIGHT selects the footer parameter, and A must preserve that selection. On an empty
-        // cell, the initial A still creates the standard C4 note so the cell has a concrete step to edit;
-        // the selected parameter remains unchanged.
+        // A arms the currently selected Pattern parameter.  Do NOT reset the parameter to NOTE:
+        // the footer selection is the editor target.  Empty cells receive a C4 trigger as the
+        // underlying step so every parameter has a concrete step to edit, while the selected
+        // parameter remains the value shown in the cell.  A+DPAD then adjusts that value through
+        // cursor_context()/generic_input().
+        const PatternParameter parameter =
+            static_cast<PatternParameter>(std::clamp(s_.seqPatternParameter, 0, 14));
+        bool modified = false;
         if (pattern.steps[index].note == songcore::Note::EMPTY()) {
             pattern.steps[index].note = songcore::note_from_midi(60);
-            mark_modified();
+            modified = true;
         }
+        if (parameter == PatternParameter::CHANCE ||
+            parameter == PatternParameter::FILTER_FREQUENCY ||
+            parameter == PatternParameter::RESONANCE ||
+            parameter == PatternParameter::DRIVE ||
+            parameter == PatternParameter::CRUSH ||
+            parameter == PatternParameter::DOWNSAMPLE ||
+            parameter == PatternParameter::REVERSE ||
+            parameter == PatternParameter::PAN ||
+            parameter == PatternParameter::SLIDE ||
+            parameter == PatternParameter::ARPEGGIATOR ||
+            parameter == PatternParameter::REVERB ||
+            parameter == PatternParameter::DELAY) {
+            const int before = PatternEditorModule::parameter_value(pattern, static_cast<int>(index), parameter);
+            if (!PatternEditorModule::parameter_present(pattern.steps[index], parameter)) {
+                PatternEditorModule::set_parameter(pattern, static_cast<int>(index), parameter, 0);
+                modified = modified || before != PatternEditorModule::parameter_value(pattern, static_cast<int>(index), parameter);
+            }
+        }
+        if (modified) mark_modified();
         return;
     }
     if (s_.currentScreen == ScreenType::BANKS) {
@@ -3987,9 +4010,14 @@ void InputDispatcher::on_start() {
             host_.stop();
             return;
         }
-        const int scene = (s_.currentScreen == ScreenType::ARRANGE)
-                              ? (s_.seqArrangePage * songcore::SEQUENCER_PATTERNS + s_.seqArrangeCursorColumn)
-                              : 0;
+        if (s_.currentScreen == ScreenType::BANKS) {
+            std::array<int, songcore::SEQUENCER_TRACKS> patterns{};
+            for (int t = 0; t < songcore::SEQUENCER_TRACKS; ++t)
+                patterns[static_cast<size_t>(t)] = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(t)], 0, songcore::SEQUENCER_PATTERNS - 1);
+            host_.play_handheld_banks(s_.seqBank, patterns);
+            return;
+        }
+        const int scene = s_.seqArrangePage * songcore::SEQUENCER_PATTERNS + s_.seqArrangeCursorColumn;
         host_.play_handheld_arrange(scene);
         return;
     }

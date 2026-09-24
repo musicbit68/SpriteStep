@@ -41,6 +41,7 @@ struct TrackRuntime {
 
 struct Runtime {
     bool playing = false;
+    bool banks_mode = false; // BANKS performance playback; false means ARRANGE playback.
     int scene = 0;
     int64_t scene_start_frame = 0;
     int64_t scene_end_frame = 0;

@@ -11,6 +11,38 @@ static Pattern& make_pattern(Project& p, int track, int bank, int pattern, int l
     return result;
 }
 
+static void test_banks_mode_loops_without_arrange() {
+    Project p;
+    make_pattern(p, 0, 0, 0, 4);
+    make_pattern(p, 1, 0, 0, 2);
+    std::array<int, TRACK_COUNT> selected{};
+    selected.fill(0);
+
+    Sequencer seq(p, 48000);
+    seq.start_banks(0, selected, 0);
+    assert(seq.playing());
+    assert(seq.runtime().banks_mode);
+    assert(seq.runtime().scene == -1);
+    assert(seq.runtime().tracks[0].active);
+    assert(seq.runtime().tracks[1].active);
+
+    const int64_t step = seq.base_step_frames();
+    const auto events = seq.schedule_until(step * 8);
+    int track0 = 0;
+    int track1 = 0;
+    bool sawRepeat = false;
+    for (const auto& e : events) {
+        if (e.track == 0) {
+            ++track0;
+            if (e.pattern_repeat > 0) sawRepeat = true;
+        } else if (e.track == 1) {
+            ++track1;
+        }
+    }
+    assert(track1 == 8);
+    assert(sawRepeat);
+}
+
 static void test_cycle_lengths() {
     Project p;
     make_pattern(p, 0, 0, 0, 16);
@@ -306,6 +338,7 @@ static void test_cue_readback_survives_lookahead_until_boundary() {
 }
 
 int main() {
+    test_banks_mode_loops_without_arrange();
     test_cycle_lengths();
     test_shared_clock_different_rates();
     test_short_pattern();

@@ -39,6 +39,10 @@ public:
     // Begin playback of Arrange scene 0. Each active track starts at the same global frame.
     void start_arrange(int scene = 0, int64_t frame = 0);
 
+    // Begin looping the selected patterns from one Bank. BANKS is the primary performance
+    // transport; it does not depend on Arrange scenes.
+    void start_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame = 0);
+
     // Fill events until `end_frame`. The caller can send these directly to the SPRITESTEP
     // scheduler/audio adapter. This function never advances the audio clock itself.
     std::vector<ScheduledStep> schedule_until(int64_t end_frame);
@@ -59,6 +63,7 @@ public:
 private:
     int64_t pattern_step_frames(int track) const;
     void enter_scene(int scene, int64_t frame);
+    void enter_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame);
     void initialize_track_from_ref(int track, const PatternRef& ref, int64_t frame);
     void emit_next_step(int track, std::vector<ScheduledStep>& out);
     bool condition_passes(const Pattern& pattern, int step, uint64_t patternRepeat) const;

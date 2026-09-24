@@ -42,9 +42,39 @@ void Sequencer::start_arrange(int scene, int64_t frame) {
     }
     scene = std::clamp(scene, 0, static_cast<int>(project_.scenes.size()) - 1);
     runtime_.playing = true;
+    runtime_.banks_mode = false;
     runtime_.scene = scene;
     for (auto& h : scheduled_history_) h.clear();
     enter_scene(scene, frame);
+}
+
+void Sequencer::start_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame) {
+    bank = std::clamp(bank, 0, BANK_COUNT - 1);
+    runtime_ = Runtime{};
+    runtime_.playing = true;
+    runtime_.banks_mode = true;
+    runtime_.scene = -1;
+    runtime_.scene_start_frame = frame;
+    runtime_.scene_end_frame = INT64_MAX;
+    for (auto& h : scheduled_history_) h.clear();
+    enter_banks(bank, patterns, frame);
+}
+
+void Sequencer::enter_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame) {
+    bank = std::clamp(bank, 0, BANK_COUNT - 1);
+    runtime_.scene = -1;
+    runtime_.scene_start_frame = frame;
+    runtime_.scene_end_frame = INT64_MAX;
+    for (int t = 0; t < TRACK_COUNT; ++t) {
+        const int pattern = std::clamp(patterns[static_cast<size_t>(t)], 0, PATTERN_COUNT - 1);
+        TrackRuntime& rt = runtime_.tracks[static_cast<size_t>(t)];
+        rt = TrackRuntime{};
+        rt.active = true;
+        rt.bank = static_cast<uint8_t>(bank);
+        rt.pattern = static_cast<uint8_t>(pattern);
+        rt.pattern_start_frame = frame;
+        rt.next_step_frame = frame;
+    }
 }
 
 void Sequencer::enter_scene(int scene, int64_t frame) {
@@ -242,7 +272,7 @@ std::vector<ScheduledStep> Sequencer::schedule_until(int64_t end_frame) {
         }
 
         if (nextTrack < 0) break;
-        if (nextFrame >= runtime_.scene_end_frame) {
+        if (!runtime_.banks_mode && nextFrame >= runtime_.scene_end_frame) {
             if (!advance_scene_if_needed(nextFrame)) break;
             continue;
         }

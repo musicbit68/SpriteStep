@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <array>
 
 #include "sequencer.h"
 #include "songcore/model.h"
@@ -17,6 +18,7 @@ public:
                          songcore::MidiRouter& router, int sampleRate = 44100);
 
     void start(int scene = 0, int64_t frame = 0);
+    void start_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame = 0);
     void stop();
     bool playing() const { return sequencer_.playing(); }
     size_t schedule_until(int64_t endFrame);

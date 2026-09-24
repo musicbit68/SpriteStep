@@ -16,6 +16,11 @@ void SPRITESTEPAdapter::start(int scene, int64_t frame) {
     scheduler_.set_clock(frame);
 }
 
+void SPRITESTEPAdapter::start_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame) {
+    sequencer_.start_banks(bank, patterns, frame);
+    scheduler_.set_clock(frame);
+}
+
 void SPRITESTEPAdapter::stop() {
     sequencer_.stop();
 }
