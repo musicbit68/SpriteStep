@@ -12,8 +12,8 @@ constexpr int CELL = 9;
 constexpr int GAP = 3;
 constexpr int MAIN_W = 5 * CELL + 4 * GAP;
 constexpr int BAR_H = 7;
-constexpr int BAR_Y1 = 35;
-constexpr int BAR_Y2 = 45;
+constexpr int BAR_Y1 = 30;
+constexpr int BAR_Y2 = 38;
 constexpr int TOP_Y = 0;
 constexpr int MAIN_Y = 13;
 

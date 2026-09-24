@@ -623,6 +623,7 @@ CursorContext InputDispatcher::cursor_context() const {
             ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
             ps.scaleMask = songcore::scale_mask(songcore::scale_at(p, 0));
             ps.scaleKey = p.scaleKey;
+            ps.selectedFxCode = s_.seqPatternSelectedFxCode;
             ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(track)].direction);
             ps.shuffle = p.sequencer.tracks[static_cast<size_t>(track)].shuffle;
             return pattern_.cursor_context(ps);
@@ -1581,16 +1582,6 @@ void InputDispatcher::on_a_up() {
         apply_pattern_range(pt::ui::increment_fast);
         return;
     }
-    if (s_.currentScreen == ScreenType::PATTERN &&
-        PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)) == PatternParameter::MORE) {
-        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
-        const int bank = pattern_bank_for_track(s_, track);
-        const int pat = pattern_index_for_track(s_, track);
-        const auto& step = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].steps[static_cast<size_t>(s_.seqPatternCursorStep)];
-        s_.fxHelper = fx_helper_opened_at(songcore::step_fx_type(step, 1), fx_layout_for(visible_effect_type_count()));
-        s_.seqPatternFxPickerPersistent = true;
-        return;
-    }
     if (s_.currentScreen == ScreenType::PATTERN) { generic_input(pt::ui::increment_fast); return; }
     if (overlay_swallows(Overlay::THEME | Overlay::EQ | Overlay::FX_HELPER)) return;
     if (theme_open()) {
@@ -1842,8 +1833,46 @@ void InputDispatcher::on_a_b() {
         return;
     }
 
-    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
-        apply_pattern_range(pt::ui::on_a_b);
+    if (s_.currentScreen == ScreenType::PATTERN) {
+        Project& p = host_.edit_project();
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        if (s_.seqPatternRangeActive) {
+            const int first = std::clamp(std::min(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1);
+            const int last = std::clamp(std::max(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1);
+            s_.seqPatternRangeClipboard = sequencer::Pattern{};
+            s_.seqPatternRangeClipboardLength = last - first + 1;
+            for (int i = 0; i < s_.seqPatternRangeClipboardLength; ++i) {
+                const int src = first + i;
+                s_.seqPatternRangeClipboard.steps[static_cast<size_t>(i)] = pattern.steps[static_cast<size_t>(src)];
+                s_.seqPatternRangeClipboard.conditions[static_cast<size_t>(i)] = pattern.conditions[static_cast<size_t>(src)];
+                s_.seqPatternRangeClipboard.wait_ppqn[static_cast<size_t>(i)] = pattern.wait_ppqn[static_cast<size_t>(src)];
+                s_.seqPatternRangeClipboard.trigless[static_cast<size_t>(i)] = pattern.trigless[static_cast<size_t>(src)];
+                pattern.steps[static_cast<size_t>(src)] = songcore::PhraseStep{};
+                pattern.conditions[static_cast<size_t>(src)] = 0;
+                pattern.wait_ppqn[static_cast<size_t>(src)] = 0;
+                pattern.trigless[static_cast<size_t>(src)] = 0;
+            }
+            s_.seqPatternRangeClipboardValid = true;
+            mark_modified();
+            cancel_pattern_range();
+            return;
+        }
+        const size_t index = static_cast<size_t>(std::clamp(s_.seqPatternCursorStep, 0, pattern.clamped_length() - 1));
+        const auto& step = pattern.steps[index];
+        const bool occupied = PatternEditorModule::step_has_data(step) || pattern.conditions[index] != 0 || pattern.wait_ppqn[index] != 0 || pattern.trigless[index] != 0;
+        if (occupied) {
+            s_.seqStepClipboard = step;
+            s_.seqStepClipboardCondition = pattern.conditions[index];
+            s_.seqStepClipboardWaitPPQN = pattern.wait_ppqn[index];
+            s_.seqStepClipboardTrigless = pattern.trigless[index] != 0;
+            s_.seqStepClipboardValid = true;
+            pattern.steps[index] = songcore::PhraseStep{};
+            pattern.conditions[index] = 0; pattern.wait_ppqn[index] = 0; pattern.trigless[index] = 0;
+            mark_modified();
+        }
         return;
     }
 
@@ -2243,7 +2272,7 @@ void InputDispatcher::seq_apply_pattern_action(const InputAction& action) {
     const int pat = pattern_index_for_track(s_, track);
     auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
     PatternEditorState ps;
-    ps.track=track; ps.cursorStep=s_.seqPatternCursorStep; ps.parameter=PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+    ps.track=track; ps.cursorStep=s_.seqPatternCursorStep; ps.selectedFxCode=s_.seqPatternSelectedFxCode; ps.parameter=PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
     const auto r = pattern_.handle_input(pattern, ps, action);
     if (r.modified) mark_modified();
 }
@@ -2295,9 +2324,12 @@ void InputDispatcher::seq_a_action() {
         const PatternParameter parameter = PatternEditorModule::footer_parameter(
             std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
         if (parameter == PatternParameter::MORE) {
-            const auto& step = pattern.steps[index];
-            s_.fxHelper = fx_helper_opened_at(songcore::step_fx_type(step, 1), fx_layout_for(visible_effect_type_count()));
-            s_.seqPatternFxPickerPersistent = true;
+            if (s_.seqPatternSelectedFxCode == songcore::FX_NONE) return;
+            if (!PatternEditorModule::parameter_present(pattern.steps[index], PatternParameter::MORE)) {
+                const int slot = PatternEditorModule::ensure_fx_slot(pattern.steps[index], s_.seqPatternSelectedFxCode);
+                songcore::step_set_fx_value(pattern.steps[index], slot, 0);
+                mark_modified();
+            }
             return;
         }
         bool modified = false;
@@ -2335,8 +2367,10 @@ void InputDispatcher::seq_a_action() {
             // A + pattern cues the SAME COLUMN on every track. Do not use each row's remembered
             // selectedPatterns value here: that would cue the current track correctly while sending
             // different patterns to the other tracks, which makes the all-column gesture appear broken.
-            for (int track = 0; track < songcore::SEQUENCER_TRACKS; ++track)
+            for (int track = 0; track < songcore::SEQUENCER_TRACKS; ++track) {
+                s_.seqSelectedPatterns[static_cast<size_t>(track)] = r.pattern;
                 host_.cue_handheld_pattern(track, r.bank, r.pattern);
+            }
         }
         if (r.operation==BanksOperation::RANDOMIZE_ALL_SELECTED || r.operation==BanksOperation::CLEAR_ALL_SELECTED) mark_modified();
         return;
@@ -2382,7 +2416,10 @@ void InputDispatcher::seq_b_action() {
         BanksViewState bs; bs.bank=s_.seqBank; bs.selectedPatterns=s_.seqSelectedPatterns; bs.cursorTrack=s_.seqBanksCursorTrack; bs.cursorColumn=s_.seqBanksCursorColumn; bs.bankSelector=s_.seqBanksBankSelector; bs.allCursor=s_.seqBanksAllCursor;
         populate_bank_random_instruments(bs, p);
         const auto r=banks_.activate_b(bs,p.sequencer); s_.seqBank=bs.bank; s_.seqSelectedPatterns=bs.selectedPatterns; s_.seqBanksCursorTrack=bs.cursorTrack; s_.seqBanksCursorColumn=bs.cursorColumn; s_.seqBanksBankSelector=bs.bankSelector; s_.seqBanksAllCursor=bs.allCursor;
-        if (r.operation==BanksOperation::CUE_TRACK_PATTERN) host_.cue_handheld_pattern(r.track, r.bank, r.pattern);
+        if (r.operation==BanksOperation::CUE_TRACK_PATTERN) {
+            s_.seqSelectedPatterns[static_cast<size_t>(r.track)] = r.pattern;
+            host_.cue_handheld_pattern(r.track, r.bank, r.pattern);
+        }
         if (r.operation==BanksOperation::RANDOMIZE_TRACK_PATTERN || r.operation==BanksOperation::CLEAR_TRACK_PATTERN) mark_modified();
         return;
     }
@@ -3731,9 +3768,8 @@ void InputDispatcher::on_button_a() {
     // picker. This must be handled before the sequencer-screen dispatch below, because the picker is
     // an overlay over PATTERN and the underlying PATTERN A action would otherwise simply reopen it.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        apply_fx_type_change(s_.fxHelper.selected_effect_code());
-        s_.fxHelper = FxHelperState{};
-        s_.seqPatternFxPickerPersistent = false;
+        // ALL^ is a parameter editor: A remains the edit/adjust button, so it must not
+        // accept/close the picker. B is the dedicated picker toggle.
         return;
     }
 
@@ -3918,9 +3954,19 @@ void InputDispatcher::on_button_b() {
 
     if (qwerty_open()) { delete_char(s_.qwerty); return; }
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        apply_fx_type_change(s_.fxHelper.selected_effect_code());
+        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
         s_.fxHelper = FxHelperState{};
         s_.seqPatternFxPickerPersistent = false;
+        return;
+    }
+    if (s_.currentScreen == ScreenType::PATTERN &&
+        PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)) == PatternParameter::MORE) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        const auto& step = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].steps[static_cast<size_t>(s_.seqPatternCursorStep)];
+        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_for(visible_effect_type_count()));
+        s_.seqPatternFxPickerPersistent = true;
         return;
     }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {

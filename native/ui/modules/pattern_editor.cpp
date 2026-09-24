@@ -350,7 +350,11 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                     c.draw_text(std::to_string(data.note.octave), sx + 10, rowY + 18,
                                 cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
                 } else {
-                    const std::string value = pattern_parameter_text(*p, step, s.parameter);
+                    std::string value = pattern_parameter_text(*p, step, s.parameter);
+                    if (s.parameter == PatternParameter::MORE && s.selectedFxCode != songcore::FX_NONE) {
+                        const int fxSlot = fx_slot(p->steps[static_cast<size_t>(step)], s.selectedFxCode);
+                        value = fxSlot ? hex2(songcore::step_fx_value(p->steps[static_cast<size_t>(step)], fxSlot)) : "--";
+                    }
                     c.draw_text(value, sx + 2, rowY + 9,
                                 cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
                 }
@@ -390,7 +394,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool rangeCell = selectedTrack && s.rangeActive && step >= rangeFirst && step <= rangeLast;
             if (rangeCell)
                 c.stroke_rect(sx - 1, rowY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2,
-                              PATTERN_CURSOR_RED, 1);
+                              PATTERN_CURSOR_RED, 3);
 
             // The editing cursor is an outline outside the 35px cell. It never obscures the
             // note/parameter text and is therefore still obvious on an occupied step.
@@ -467,8 +471,14 @@ CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) c
             const int v = current->trigless[static_cast<size_t>(s.cursorStep)] ? 1 : 0;
             return cc::effect_value(v, 0, 1);
         }
-        case PatternParameter::MORE:
-            return cc::none();
+        case PatternParameter::MORE: {
+            const int code = s.selectedFxCode;
+            if (code == songcore::FX_NONE) return cc::none();
+            const int slot = fx_slot(step, code);
+            if (!slot) return cc::effect_value(0, 1, songcore::effect_value_max(code));
+            return cc::effect_value(songcore::step_fx_value(step, slot), slot,
+                                    songcore::effect_value_max(code));
+        }
         default: {
             if (!is_fx_parameter(s.parameter)) return cc::none();
             const int code = fx_code(s.parameter);
@@ -505,13 +515,27 @@ PatternEditResult PatternEditorModule::handle_input(sequencer::Pattern& pattern,
 
     switch (action.type) {
         case ActionType::SET_VALUE:
+            if (state.parameter == PatternParameter::MORE && state.selectedFxCode != songcore::FX_NONE) {
+                const int slot = ensure_fx_slot(step, state.selectedFxCode);
+                const int before = songcore::step_fx_value(step, slot);
+                songcore::step_set_fx_value(step, slot, action.value);
+                result.modified = before != action.value;
+                break;
+            }
+
             if (parameter_editable(state.parameter)) {
                 set_parameter(pattern, state.cursorStep, state.parameter, action.value);
                 result.modified = true;
             }
             break;
         case ActionType::DELETE:
-            if (parameter_editable(state.parameter)) {
+            if (state.parameter == PatternParameter::MORE && state.selectedFxCode != songcore::FX_NONE) {
+                const int slot = fx_slot(step, state.selectedFxCode);
+                if (slot) {
+                    songcore::step_set_fx(step, slot, songcore::FX_NONE, 0);
+                    result.modified = true;
+                }
+            } else if (parameter_editable(state.parameter)) {
                 clear_parameter(pattern, state.cursorStep, state.parameter);
                 result.modified = true;
             }

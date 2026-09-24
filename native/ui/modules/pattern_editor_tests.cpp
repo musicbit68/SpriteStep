@@ -132,6 +132,21 @@ int main() {
     assert(songcore::note_to_midi(p.steps[2].note) == 64);
     assert(songcore::note_to_midi(p.steps[3].note) == 65);
 
+    // ALL^ FX parameter editing: the picker selects an effect code, then the normal A+DPAD
+    // editing path can create/adjust that effect without reopening the picker.
+    state.parameter = PatternParameter::MORE;
+    state.selectedFxCode = FX_PAN;
+    state.cursorStep = 4;
+    auto fxCtx = module.cursor_context(state);
+    assert(fxCtx.valueType == CursorValueType::EFFECT_VALUE);
+    result = module.handle_input(p, state, InputAction::set_value(0x44));
+    assert(result.modified);
+    assert(step_has_fx(p.steps[4], FX_PAN));
+    assert(PatternEditorModule::parameter_value(p.steps[4], PatternParameter::PAN) == 0x44);
+    result = module.handle_input(p, state, InputAction::of(ActionType::DELETE));
+    assert(result.modified);
+    assert(!step_has_fx(p.steps[4], FX_PAN));
+
     std::cout << "pattern editor tests: PASS\n";
     return 0;
 }

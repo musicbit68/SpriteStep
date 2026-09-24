@@ -60,6 +60,7 @@ struct PatternEditorState {
     int shuffle = 0;
     unsigned scaleMask = 0x0FFFu;
     int scaleKey = 0;
+    int selectedFxCode = songcore::FX_NONE;
 };
 
 struct PatternEditResult {
@@ -93,6 +94,7 @@ public:
     static void set_parameter(sequencer::PatternStep& step, PatternParameter p, int value);
     static void set_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p, int value);
     static void clear_parameter(sequencer::PatternStep& step, PatternParameter p);
+    static int ensure_fx_slot(sequencer::PatternStep& step, int code);
     static void clear_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p);
     static std::string parameter_text(const sequencer::PatternStep& step, PatternParameter p);
     static PatternParameter footer_parameter(int index);
@@ -103,7 +105,6 @@ private:
     static const char* parameter_name(PatternParameter p);
     static int fx_code(PatternParameter p);
     static int fx_slot(const sequencer::PatternStep& step, int code);
-    static int ensure_fx_slot(sequencer::PatternStep& step, int code);
     static bool parameter_editable(PatternParameter p);
 };
 

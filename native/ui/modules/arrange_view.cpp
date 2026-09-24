@@ -146,13 +146,13 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
     // Page selector 0..7.  The selector is a page, not a pattern bank: it chooses which sixteen
     // scene columns are visible and therefore keeps the scene address independent of track/bank.
     for (int p = 0; p < SCENE_PAGE_COUNT; ++p) {
-        const int px = x + 197 + p * 24;
+        const int px = x + 197 + p * 31;
         if (p == page) {
-            c.fill_rect(px - 2, y + FOOTER_Y - 4, 20, 27, 0xFFFFFFFF);
-            c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
+            c.fill_rect(px, y + FOOTER_Y - 4, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFFFFFFF);
+            c.draw_text(songcore::hex2(p).substr(1), px + 10, y + FOOTER_Y + 6,
                         0xFF000000, CHAR_SPACING, FONT_SCALE);
             if (s.pageSelector) {
-                c.stroke_rect(px - 5, y + FOOTER_Y - 7, 26, 33, 0xFFFF0000, 3);
+                c.stroke_rect(px - 1, y + FOOTER_Y - 5, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, 0xFFFF0000, 3);
             }
         } else {
             const bool filledPage = [&] {
@@ -162,7 +162,7 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
                     if (!scene_is_empty(s.sequencer.scenes[static_cast<size_t>(scene)])) return true;
                 return false;
             }();
-            c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
+            c.draw_text(songcore::hex2(p).substr(1), px + 10, y + FOOTER_Y + 6,
                         filledPage ? t.textValue : t.textEmpty, CHAR_SPACING, FONT_SCALE);
         }
     }

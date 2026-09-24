@@ -32,7 +32,7 @@ struct NavigationMapState {
 class NavigationMapModule {
 public:
     static constexpr int WIDTH  = 65;
-    static constexpr int HEIGHT = 60;
+    static constexpr int HEIGHT = 52;
 
     // Retained names for callers/tests from the text-map implementation. The compact renderer uses
     // its own 9px block geometry above.
