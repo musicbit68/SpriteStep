@@ -25,6 +25,11 @@ struct TrackCue {
     bool pending = false;
     uint8_t bank = 0;
     uint8_t pattern = 0;
+    // Runtime-only launch point. `pending` stays true until the launch has actually reached the
+    // audio clock, so the BANKS UI can blink the queued cell for the whole wait.
+    int64_t launch_frame = -1;
+    int64_t started_frame = -1;
+    bool started = false;
 };
 
 // Runtime state is deliberately separate from saved project data and UI state.

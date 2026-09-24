@@ -115,22 +115,79 @@ void Sequencer::initialize_track_from_ref(int track, const PatternRef& ref, int6
     rt.pattern_start_frame = frame;
     rt.next_step_frame = frame;
     rt.cue.pending = false;
+    rt.cue.launch_frame = -1;
+    rt.cue.started_frame = -1;
+    rt.cue.started = false;
 }
 
-void Sequencer::cue_pattern(int track, int bank, int pattern) {
+int64_t Sequencer::next_pattern_boundary(int track, int64_t currentFrame) const {
+    if (track < 0 || track >= TRACK_COUNT || !runtime_.playing) return currentFrame;
+
+    const TrackRuntime& rt = runtime_.tracks[static_cast<size_t>(track)];
+    if (!rt.active) return currentFrame;
+
+    // The scheduled runtime can be several phrases ahead because BANKS uses lookahead. The most
+    // recent event at the real audio clock tells us which pattern is actually sounding and, via the
+    // stamped pattern_start_frame, gives us the real boundary rather than the lookahead cursor.
+    int bank = rt.bank;
+    int pattern = rt.pattern;
+    int64_t start = rt.pattern_start_frame;
+    if (const auto event = playhead_at(track, currentFrame)) {
+        bank = event->bank;
+        pattern = event->pattern;
+        start = event->pattern_start_frame;
+    }
+
+    const int64_t duration = pattern_duration_base_steps(
+        pattern_at(project_, track, bank, pattern), project_.tracks[static_cast<size_t>(track)]) * base_step_frames();
+    if (duration <= 0) return currentFrame;
+    if (currentFrame < start) return start;
+
+    const int64_t cycles = (currentFrame - start) / duration + 1;
+    return start + cycles * duration;
+}
+
+int64_t Sequencer::cue_pattern(int track, int bank, int pattern, int64_t currentFrame) {
     if (track < 0 || track >= TRACK_COUNT || bank < 0 || bank >= BANK_COUNT ||
-        pattern < 0 || pattern >= PATTERN_COUNT) return;
+        pattern < 0 || pattern >= PATTERN_COUNT) return -1;
 
     TrackRuntime& rt = runtime_.tracks[static_cast<size_t>(track)];
     rt.cue.pending = true;
     rt.cue.bank = static_cast<uint8_t>(bank);
     rt.cue.pattern = static_cast<uint8_t>(pattern);
+    rt.cue.started = false;
+    rt.cue.started_frame = -1;
 
     // A stopped/inactive track has no current boundary. Start the cue immediately if it is not
     // participating in the current scene; this keeps the cue API useful for LIVE-style playback.
     if (runtime_.playing && !rt.active) {
-        initialize_track_from_ref(track, PatternRef{true, rt.cue.bank, rt.cue.pattern}, runtime_.scene_start_frame);
+        initialize_track_from_ref(track, PatternRef{true, rt.cue.bank, rt.cue.pattern}, currentFrame);
         rt.cue.pending = false;
+        rt.cue.launch_frame = -1;
+        rt.cue.started_frame = -1;
+        return currentFrame;
+    }
+
+    const int64_t launch = next_pattern_boundary(track, currentFrame);
+    rt.cue.launch_frame = launch;
+
+    // Rewind only when this track already has lookahead scheduled. A unit-test/newly-started
+    // sequencer has no queued audio to replace, so its cursor is already at the real transport and
+    // must keep emitting the current pattern until `launch`. On the handheld, scheduled_history_ is
+    // populated by poll_handheld(), so the lookahead cursor is safely rewound to the cue boundary.
+    if (!scheduled_history_[static_cast<size_t>(track)].empty())
+        rt.next_step_frame = launch;
+    return launch;
+}
+
+void Sequencer::consume_cues_at(int64_t frame) {
+    for (auto& rt : runtime_.tracks) {
+        if (rt.cue.pending && rt.cue.started && rt.cue.started_frame >= 0 && frame >= rt.cue.started_frame) {
+            rt.cue.pending = false;
+            rt.cue.started = false;
+            rt.cue.launch_frame = -1;
+            rt.cue.started_frame = -1;
+        }
     }
 }
 
@@ -191,6 +248,22 @@ void Sequencer::emit_next_step(int track, std::vector<ScheduledStep>& out) {
     TrackRuntime& rt = runtime_.tracks[static_cast<size_t>(track)];
     if (!rt.active) return;
 
+    // A cue is armed against the real pattern boundary, while this runtime cursor may have been
+    // rewound from a much farther-ahead lookahead position. Switch exactly at that boundary before
+    // emitting the first step of the new pattern. Keep the cue visible until the audio clock catches
+    // up; consume_cues_at() owns that UI lifetime.
+    if (rt.cue.pending && rt.cue.launch_frame >= 0 && rt.next_step_frame >= rt.cue.launch_frame) {
+        rt.bank = rt.cue.bank;
+        rt.pattern = rt.cue.pattern;
+        rt.step = 0;
+        rt.pattern_repeat = 0;
+        rt.pattern_start_frame = rt.cue.launch_frame;
+        rt.next_step_frame = rt.cue.launch_frame;
+        rt.cue.started = true;
+        rt.cue.started_frame = rt.cue.launch_frame;
+        rt.cue.launch_frame = -1;
+    }
+
     const Pattern& p = pattern_at(project_, track, rt.bank, rt.pattern);
     const Track& tr = project_.tracks[static_cast<size_t>(track)];
     const int length = p.clamped_length();
@@ -213,6 +286,7 @@ void Sequencer::emit_next_step(int track, std::vector<ScheduledStep>& out) {
             authoredStep,
             eventFrame,
             stepFrames,
+            rt.pattern_start_frame,
             rt.pattern_repeat,
             runtime_.scene,
             waitPpqn,
@@ -231,14 +305,9 @@ void Sequencer::emit_next_step(int track, std::vector<ScheduledStep>& out) {
         rt.step = 0;
         ++rt.pattern_repeat;
 
-        // Banks-page cue: switch only after the current pattern has completed.
-        if (rt.cue.pending) {
-            rt.bank = rt.cue.bank;
-            rt.pattern = rt.cue.pattern;
-            rt.cue.pending = false;
-            rt.pattern_repeat = 0;
-            rt.pattern_start_frame = rt.next_step_frame;
-        }
+        // A pending Banks cue is applied at the top of emit_next_step(), exactly at its stored
+        // launch frame. Keeping the state transition there also lets the UI keep blinking the cue
+        // until the real transport reaches it.
     }
 }
 

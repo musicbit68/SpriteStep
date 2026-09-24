@@ -15,7 +15,9 @@ constexpr int BANK_Y = 344;
 
 void draw_cell(Canvas& c, const Theme& t, int x, int y, const std::string& text,
                bool selected, bool playing, bool cueBlink, bool filled, bool allCursor) {
-    const bool boxed = selected || playing || cueBlink;
+    // A normal D-pad hover is only the red cursor outline. The filled #A0A0A0 box is reserved for
+    // an actually playing pattern (or the lit half of a pending cue blink).
+    const bool boxed = playing || cueBlink;
     if (boxed) {
         c.fill_rect(x, y, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
         c.draw_text(text, x + 10, y + 10, 0xFF000000, CHAR_SPACING, FONT_SCALE);

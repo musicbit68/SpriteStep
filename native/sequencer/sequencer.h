@@ -18,6 +18,7 @@ struct ScheduledStep {
     int step = 0;
     int64_t frame = 0;
     int64_t duration_frames = 0;
+    int64_t pattern_start_frame = 0;
     uint64_t pattern_repeat = 0;
     int scene = -1;
     uint8_t wait_ppqn = 0;
@@ -49,7 +50,11 @@ public:
 
     // Queue a Bank/Pattern for one track. If that track is running, the cue is consumed at the
     // end of its current pattern; it does not interrupt the current pattern.
-    void cue_pattern(int track, int bank, int pattern);
+    int64_t cue_pattern(int track, int bank, int pattern, int64_t currentFrame = 0);
+
+    // The scheduler may consume a queued transition ahead of the audio clock. Keep the UI cue alive
+    // until the real transport reaches the launch frame.
+    void consume_cues_at(int64_t frame);
 
     // Readback for the UI. This uses the actual scheduled event frame rather than the scheduler's
     // lookahead cursor, so the marker represents what is sounding now rather than what has already
@@ -62,6 +67,7 @@ public:
 
 private:
     int64_t pattern_step_frames(int track) const;
+    int64_t next_pattern_boundary(int track, int64_t currentFrame) const;
     void enter_scene(int scene, int64_t frame);
     void enter_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame);
     void initialize_track_from_ref(int track, const PatternRef& ref, int64_t frame);

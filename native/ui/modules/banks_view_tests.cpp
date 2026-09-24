@@ -36,7 +36,7 @@ int main() {
     state.cursorColumn = 4;
     result = view.activate_a(state, project);
     assert(result.operation == pt::ui::BanksOperation::CUE_ALL_TRACKS_PATTERN_COLUMN);
-    assert(result.pattern == 4);
+    assert(result.bank == 0 && result.pattern == 4);
 
     // The D-pad never enters the footer bank numbers. Bank changes are a modifier gesture.
     state.cursorTrack = sequencer::TRACK_COUNT - 1;

@@ -332,6 +332,10 @@ static void test_cue_readback_survives_lookahead_until_boundary() {
     seq.cue_pattern(0, 1, 2);
     assert(seq.cue_state(0).pending);
     seq.schedule_until(seq.base_step_frames() * 4 + 1);
+    // Scheduling can run ahead of the real transport; the UI cue remains pending until the audio
+    // clock actually reaches the launch boundary.
+    assert(seq.cue_state(0).pending);
+    seq.consume_cues_at(seq.base_step_frames() * 4 + 1);
     assert(!seq.cue_state(0).pending);
     auto ph = seq.playhead_at(0, seq.base_step_frames() * 4);
     assert(ph && ph->bank == 1 && ph->pattern == 2);

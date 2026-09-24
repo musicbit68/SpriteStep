@@ -2236,8 +2236,11 @@ void InputDispatcher::seq_a_action() {
         BanksViewState bs; bs.bank=s_.seqBank; bs.selectedPatterns=s_.seqSelectedPatterns; bs.cursorTrack=s_.seqBanksCursorTrack; bs.cursorColumn=s_.seqBanksCursorColumn; bs.bankSelector=s_.seqBanksBankSelector; bs.allCursor=s_.seqBanksAllCursor;
         const auto r=banks_.activate_a(bs,p.sequencer); s_.seqBank=bs.bank; s_.seqSelectedPatterns=bs.selectedPatterns; s_.seqBanksCursorTrack=bs.cursorTrack; s_.seqBanksCursorColumn=bs.cursorColumn; s_.seqBanksBankSelector=bs.bankSelector; s_.seqBanksAllCursor=bs.allCursor;
         if (r.operation==BanksOperation::CUE_ALL_TRACKS_PATTERN_COLUMN) {
+            // A + pattern cues the SAME COLUMN on every track. Do not use each row's remembered
+            // selectedPatterns value here: that would cue the current track correctly while sending
+            // different patterns to the other tracks, which makes the all-column gesture appear broken.
             for (int track = 0; track < songcore::SEQUENCER_TRACKS; ++track)
-                host_.cue_handheld_pattern(track, s_.seqBank, s_.seqSelectedPatterns[static_cast<size_t>(track)]);
+                host_.cue_handheld_pattern(track, r.bank, r.pattern);
         }
         if (r.operation==BanksOperation::RANDOMIZE_ALL_SELECTED || r.operation==BanksOperation::CLEAR_ALL_SELECTED) mark_modified();
         return;
@@ -3583,6 +3586,16 @@ void InputDispatcher::midi_action() {
 // ─── The plain buttons ───────────────────────────────────────────────────────────────────────────
 
 void InputDispatcher::on_button_a() {
+    // Pattern ALL^ uses a persistent FX picker: A confirms the highlighted effect and closes the
+    // picker. This must be handled before the sequencer-screen dispatch below, because the picker is
+    // an overlay over PATTERN and the underlying PATTERN A action would otherwise simply reopen it.
+    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        apply_fx_type_change(s_.fxHelper.selected_effect_code());
+        s_.fxHelper = FxHelperState{};
+        s_.seqPatternFxPickerPersistent = false;
+        return;
+    }
+
     // Every layer below is ARMED — A means something on each of them, which is why this call swallows
     // only the FX helper. It is still here so that a layer added tomorrow is INERT on A rather than
     // inserting a chain on the screen hidden behind it.

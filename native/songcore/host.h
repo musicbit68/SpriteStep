@@ -1290,6 +1290,7 @@ class SongcoreHost {
         sync_clock();
         if (handheldAdapter_.playing()) {
             PlaybackPosition pos;
+            handheldAdapter_.sequencer().consume_cues_at(seq_.clock());
             const auto& runtime = handheldAdapter_.sequencer().runtime();
 
             // Always report the current scene/bank/pattern from the runtime, even when the current
@@ -1334,7 +1335,18 @@ class SongcoreHost {
 
     void cue_handheld_pattern(int track, int bank, int pattern) {
         if (!handheldAdapter_.playing()) return;
-        handheldAdapter_.sequencer().cue_pattern(track, bank, pattern);
+        sync_clock();
+        const int64_t now = seq_.clock();
+        const int64_t launch = handheldAdapter_.sequencer().cue_pattern(track, bank, pattern, now);
+        if (launch < 0) return;
+
+        // The handheld sequencer schedules ahead. Drop only this track from the cue boundary forward
+        // and immediately refill the lookahead from the rewound sequencer cursor. Other tracks keep
+        // their already-queued audio untouched.
+        if (engine_) engine_->clearScheduledNotesFrom(launch, track);
+        const int64_t base = frames_per_step(project_.tempo, sampleRate_);
+        const int64_t lookahead = std::max<int64_t>(base * 16 * 2, 1);
+        handheldAdapter_.schedule_until(now + lookahead);
     }
 
     bool is_playing() const { return seq_.is_playing() || handheldAdapter_.playing(); }
