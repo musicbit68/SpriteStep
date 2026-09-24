@@ -28,6 +28,11 @@ void SPRITESTEPAdapter::stop() {
 }
 
 size_t SPRITESTEPAdapter::schedule_until(int64_t endFrame) {
+    // Tempo belongs to the audio project, so every scheduling pass must observe the current value.
+    // The host handles removal of already-queued absolute-frame events when tempo changes; this keeps
+    // the sequencer model itself synchronized even when schedule_until() is reached through a cue or
+    // another direct adapter call.
+    sequencer_.set_tempo(audioProject_.tempo);
     const auto events = sequencer_.schedule_until(endFrame);
     for (const ScheduledStep& event : events) {
         if (event.track < 0 || event.track >= TRACK_COUNT) continue;

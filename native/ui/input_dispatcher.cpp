@@ -3943,6 +3943,16 @@ void InputDispatcher::on_button_a() {
 }
 
 void InputDispatcher::on_button_b() {
+    // The persistent Pattern ALL^ picker owns B: B is its explicit open/close toggle. Check it
+    // before the generic overlay swallow, otherwise FX_HELPER is treated as a modal that consumes
+    // B and the close path below is never reached.
+    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
+        s_.fxHelper = FxHelperState{};
+        s_.seqPatternFxPickerPersistent = false;
+        return;
+    }
+
     // Every layer below is ARMED — B closes or answers on each of them. Here for the same reason as
     // on_button_a's: a layer added tomorrow is inert on B rather than closing the browser behind it.
     if (overlay_swallows(Overlay::CONFIRM | Overlay::QWERTY | Overlay::THEME | Overlay::EQ |
@@ -3953,12 +3963,6 @@ void InputDispatcher::on_button_b() {
     if (confirm_open()) { confirm_cancel(); return; }
 
     if (qwerty_open()) { delete_char(s_.qwerty); return; }
-    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
-        s_.fxHelper = FxHelperState{};
-        s_.seqPatternFxPickerPersistent = false;
-        return;
-    }
     if (s_.currentScreen == ScreenType::PATTERN &&
         PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)) == PatternParameter::MORE) {
         const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
@@ -4362,13 +4366,19 @@ void InputDispatcher::on_start() {
             host_.stop();
             return;
         }
-        if (s_.currentScreen == ScreenType::BANKS) {
+
+        // PATTERN and BANKS share the handheld live-pattern transport. START on PATTERN must
+        // launch the currently selected pattern set rather than falling through to ARRANGE.
+        // This keeps START symmetrical with the BANKS page and with the Pattern-page playback
+        // state that is already used by the UI.
+        if (s_.currentScreen == ScreenType::BANKS || s_.currentScreen == ScreenType::PATTERN) {
             std::array<int, songcore::SEQUENCER_TRACKS> patterns{};
             for (int t = 0; t < songcore::SEQUENCER_TRACKS; ++t)
                 patterns[static_cast<size_t>(t)] = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(t)], 0, songcore::SEQUENCER_PATTERNS - 1);
             host_.play_handheld_banks(s_.seqBank, patterns);
             return;
         }
+
         const int scene = s_.seqArrangePage * songcore::SEQUENCER_PATTERNS + s_.seqArrangeCursorColumn;
         host_.play_handheld_arrange(scene);
         return;

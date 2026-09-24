@@ -1357,6 +1357,7 @@ class SongcoreHost {
         stop();
         sync_clock();
         handheldAdapter_.start(scene, seq_.clock());
+        handheldScheduledTempo_ = project_.tempo;
         poll_handheld();
     }
 
@@ -1364,6 +1365,7 @@ class SongcoreHost {
         stop();
         sync_clock();
         handheldAdapter_.start_banks(bank, patterns, seq_.clock());
+        handheldScheduledTempo_ = project_.tempo;
         poll_handheld();
     }
 
@@ -1379,6 +1381,17 @@ class SongcoreHost {
         if (!handheldAdapter_.playing()) return;
         sync_clock();
         const int64_t now = seq_.clock();
+
+        // The handheld scheduler keeps a musical lookahead in the audio queue. If tempo changes while
+        // that queue is populated, changing only Sequencer::tempo leaves old-tempo events stamped at
+        // absolute audio frames. Drop future handheld events, preserve the current runtime boundary,
+        // and refill from that boundary using the new tempo. The current step is not retriggered.
+        if (handheldScheduledTempo_ != project_.tempo) {
+            if (engine_) engine_->clearScheduledNotesFrom(now);
+            handheldAdapter_.sequencer().set_tempo(project_.tempo);
+            handheldScheduledTempo_ = project_.tempo;
+        }
+
         const int64_t base = frames_per_step(project_.tempo, sampleRate_);
         const int64_t lookahead = std::max<int64_t>(base * 16 * 2, 1);
         handheldAdapter_.schedule_until(now + lookahead);
@@ -1614,6 +1627,7 @@ class SongcoreHost {
     EngineConsumer   consumer_;
     ExternalConsumer external_;
     ::sequencer::SPRITESTEPAdapter handheldAdapter_;
+    int handheldScheduledTempo_ = -1;
     bool             midiPumpExternal_ = false;   // B3: a sender thread owns the release, not poll()
 
     // MIDI in (E2). The queue is the only member here another thread ever touches, and it locks.

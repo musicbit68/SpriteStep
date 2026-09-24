@@ -44,10 +44,26 @@ int main() {
     assert(capture.events.front().frame == 0);
     assert(capture.events.front().track == 0);
 
+    // Changing the project tempo while the adapter is already running must be observed on the next
+    // scheduling pass. The current step boundary remains intact; subsequent steps use the new tempo.
+    const int64_t oldStepFrames = stepFrames;
+    adapter.stop();
+    adapter.songcore_scheduler().reset_track_state(0);
+    std::array<int, sequencer::TRACK_COUNT> selected{};
+    selected.fill(0);
+    audioProject.tempo = 60;
+    adapter.start_banks(0, selected);
+    adapter.schedule_until(oldStepFrames + 1);
+    audioProject.tempo = 120;
+    const size_t tempoCount = adapter.schedule_until(oldStepFrames * 2 + 1);
+    assert(tempoCount >= 2);
+    assert(adapter.sequencer().base_step_frames() == 5512);
+
     capture.events.clear();
     capture.note_count = 0;
     adapter.stop();
     adapter.songcore_scheduler().reset_track_state(0);
+    audioProject.tempo = 60;
     sequenceProject.tracks[0].banks[0].patterns[0].steps[0].note = songcore::Note::EMPTY();
     sequenceProject.tracks[0].banks[0].patterns[0].steps[0].fx1Type = songcore::FX_VOLUME;
     sequenceProject.tracks[0].banks[0].patterns[0].steps[0].fx1Value = 0x40;

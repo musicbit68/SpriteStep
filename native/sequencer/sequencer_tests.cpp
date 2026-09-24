@@ -43,6 +43,44 @@ static void test_banks_mode_loops_without_arrange() {
     assert(sawRepeat);
 }
 
+
+static void test_tempo_change_while_running_affects_subsequent_steps() {
+    Project p;
+    make_pattern(p, 0, 0, 0, 16);
+    std::array<int, TRACK_COUNT> selected{};
+    selected.fill(0);
+
+    Sequencer seq(p, 44100);
+    seq.set_tempo(60);
+    seq.start_banks(0, selected, 0);
+
+    const int64_t oldStep = seq.base_step_frames();
+    // Queue through the second event. The runtime's next boundary is now one old-tempo step ahead
+    // of the last emitted event.
+    auto first = seq.schedule_until(oldStep + 1);
+    std::vector<ScheduledStep> track0First;
+    for (const auto& e : first) if (e.track == 0) track0First.push_back(e);
+    assert(track0First.size() >= 2);
+    assert(track0First[0].frame == 0);
+    assert(track0First[1].frame == oldStep);
+
+    seq.set_tempo(120);
+    const int64_t newStep = seq.base_step_frames();
+    assert(newStep < oldStep);
+
+    const int64_t preservedBoundary = oldStep * 2;
+    auto second = seq.schedule_until(preservedBoundary + newStep * 3 + 1);
+    std::vector<ScheduledStep> track0Second;
+    for (const auto& e : second) if (e.track == 0) track0Second.push_back(e);
+
+    // The already-established next boundary is preserved, but all following intervals use the new
+    // tempo. This is what allows the host to change tempo without stopping or retriggering the current step.
+    assert(track0Second.size() >= 3);
+    assert(track0Second[0].frame == preservedBoundary);
+    assert(track0Second[1].frame == preservedBoundary + newStep);
+    assert(track0Second[2].frame == preservedBoundary + newStep * 2);
+}
+
 static void test_cycle_lengths() {
     Project p;
     make_pattern(p, 0, 0, 0, 16);
@@ -358,5 +396,6 @@ int main() {
     test_playing_scene_is_runtime_authority();
     test_cue_readback_survives_lookahead_until_boundary();
     std::cout << "sequencer tests: PASS\n";
+    test_tempo_change_while_running_affects_subsequent_steps();
     return 0;
 }
