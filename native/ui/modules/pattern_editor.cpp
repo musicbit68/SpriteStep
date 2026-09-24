@@ -37,6 +37,16 @@ int crush_parameter_value(const PhraseStep& step, PatternParameter p) {
 
 } // namespace
 
+PatternParameter PatternEditorModule::footer_parameter(int index) {
+    static constexpr PatternParameter params[] = {
+        PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
+        PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
+        PatternParameter::ARPEGGIATOR, PatternParameter::MORE
+    };
+    const int i = std::clamp(index, 0, FOOTER_PARAMETER_COUNT - 1);
+    return params[i];
+}
+
 const char* PatternEditorModule::parameter_label(PatternParameter p) {
     switch (p) {
         case PatternParameter::NOTE: return "N";
@@ -82,7 +92,7 @@ const char* PatternEditorModule::parameter_name(PatternParameter p) {
         case PatternParameter::CONDITION: return "Chance";
         case PatternParameter::WAIT: return "Wait";
         case PatternParameter::TRIGLESS: return "Trigless";
-        case PatternParameter::MORE: return "More";
+        case PatternParameter::MORE: return "All FX";
     }
     return "";
 }
@@ -277,6 +287,21 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     c.draw_text("T" + std::to_string(s.track + 1) + "  B" + hex1(s.bank) + " P" + hex1(s.patternIndex),
                 x + 130, y + 5, t.textParam, CHAR_SPACING, FONT_SCALE);
 
+    const int iconY = y + 4;
+    const int dirX = x + 438;
+    const int shuffleX = x + 482;
+    const Argb dirInk = s.headerControl == 1 ? PATTERN_CURSOR_RED : t.textParam;
+    const Argb shuffleInk = s.headerControl == 2 ? PATTERN_CURSOR_RED : t.textParam;
+    const int d = s.direction;
+    if (d == 0) c.draw_text(">", dirX, iconY + 4, dirInk, CHAR_SPACING, FONT_SCALE);
+    else if (d == 1) c.draw_text("<>", dirX - 5, iconY + 4, dirInk, CHAR_SPACING, FONT_SCALE);
+    else if (d == 2) c.draw_text("<", dirX, iconY + 4, dirInk, CHAR_SPACING, FONT_SCALE);
+    else c.draw_text("?", dirX, iconY + 4, dirInk, CHAR_SPACING, FONT_SCALE);
+    c.fill_rect(shuffleX + 1, iconY + 4, 16, 2, shuffleInk);
+    c.fill_rect(shuffleX + 5, iconY + 9, 16, 2, shuffleInk);
+    c.fill_rect(shuffleX + 1, iconY + 14, 16, 2, shuffleInk);
+    c.draw_text(hex2(s.shuffle), shuffleX + 25, iconY + 4, shuffleInk, CHAR_SPACING, FONT_SCALE);
+
     // Eight project tracks are rows. Each row displays the pattern selected for that track in Banks.
     // The step grid is deliberately fixed at 16 columns; the pattern's end marker is the small
     // triangle above its final active column.
@@ -301,7 +326,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 const int my = rowY + matrix::empty_offset();
                 c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, INACTIVE_STEP_COLOR);
                 if (selectedTrack && step == s.cursorStep)
-                    c.stroke_rect(sx - 1, rowY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, PATTERN_CURSOR_RED, 1);
+                    matrix::draw_cursor(c, sx, rowY, PATTERN_CURSOR_RED);
                 continue;
             }
 
@@ -361,7 +386,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             // The editing cursor is an outline outside the 35px cell. It never obscures the
             // note/parameter text and is therefore still obvious on an occupied step.
             if (cursor)
-                c.stroke_rect(sx - 1, rowY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, PATTERN_CURSOR_RED, 1);
+                matrix::draw_cursor(c, sx, rowY, PATTERN_CURSOR_RED);
             // FMS-style playback markers. Every step in the active pattern gets a small square,
             // not only steps containing notes: this makes the transport position visible even during
             // rests. The actual playhead square grows from 9px to 13px and becomes filled, so the
@@ -370,7 +395,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool playingStep = s.isPlaying && playhead.phraseId == pat && playhead.step == step;
             if (playingStep) {
                 constexpr int marker = 13;
-                const int mx = sx + (matrix::OCCUPIED_SIZE - marker) / 2;
+                const int mx = sx + matrix::empty_offset() - (marker - matrix::EMPTY_SIZE) / 2;
                 const int my = rowY + matrix::empty_offset() - (marker - matrix::EMPTY_SIZE) / 2;
                 c.fill_rect(mx, my, marker, marker, t.textPlayhead);
                 c.stroke_rect(mx - 1, my - 1, marker + 2, marker + 2, t.textValue, 1);
@@ -393,16 +418,13 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     static constexpr PatternParameter params[] = {
         PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
         PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
-        PatternParameter::ARPEGGIATOR, PatternParameter::FILTER_FREQUENCY,
-        PatternParameter::RESONANCE, PatternParameter::DRIVE, PatternParameter::CRUSH,
-        PatternParameter::DOWNSAMPLE, PatternParameter::REVERSE, PatternParameter::REVERB,
-        PatternParameter::DELAY
+        PatternParameter::ARPEGGIATOR, PatternParameter::MORE
     };
     c.draw_text(parameter_name(s.parameter), x + 12, y + 337,
                 t.textParam, CHAR_SPACING, FONT_SCALE);
     int px = x + 12;
     for (PatternParameter p : params) {
-        const std::string label = parameter_label(p);
+        const std::string label = p == PatternParameter::MORE ? "ALL^" : parameter_label(p);
         const int w = std::max(30, Canvas::text_width(label, CHAR_SPACING, FONT_SCALE) + 12);
         const bool selected = p == s.parameter;
         if (selected) c.fill_rect(px - 3, y + BOTTOM_Y, w, 24, t.rowCursor);
@@ -410,6 +432,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                     selected ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
         px += w + 3;
     }
+
 }
 
 CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) const {
@@ -418,7 +441,7 @@ CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) c
     const auto& step = current->steps[static_cast<size_t>(s.cursorStep)];
     switch (s.parameter) {
         case PatternParameter::NOTE:
-            return cc::note(parameter_value(step, s.parameter), !parameter_present(step, s.parameter));
+            return cc::note(parameter_value(step, s.parameter), !parameter_present(step, s.parameter), s.scaleMask, s.scaleKey);
         case PatternParameter::INSTRUMENT:
             return cc::instrument(step.instrument);
         case PatternParameter::VOLUME:

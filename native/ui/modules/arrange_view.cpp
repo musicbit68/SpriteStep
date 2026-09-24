@@ -131,7 +131,6 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
                 } else {
                     c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
                 }
-                c.stroke_rect(cellX - 1, cellY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2, 0xFFFF0000, 1);
             } else if (ref.active) {
                 c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
                 c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
@@ -139,6 +138,7 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
             } else {
                 c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
             }
+            if (cursor && !playing) matrix::draw_cursor(c, cellX, cellY, 0xFFFF0000);
         }
     }
 
@@ -146,16 +146,13 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
     // Page selector 0..7.  The selector is a page, not a pattern bank: it chooses which sixteen
     // scene columns are visible and therefore keeps the scene address independent of track/bank.
     for (int p = 0; p < SCENE_PAGE_COUNT; ++p) {
-        const int px = x + LEFT + 120 + p * 24;
+        const int px = x + 197 + p * 24;
         if (p == page) {
+            c.fill_rect(px - 2, y + FOOTER_Y - 4, 20, 27, 0xFFFFFFFF);
+            c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
+                        0xFF000000, CHAR_SPACING, FONT_SCALE);
             if (s.pageSelector) {
-                c.fill_rect(px - 2, y + FOOTER_Y - 4, 20, 27, 0xFFFFFFFF);
-                c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
-                            0xFF000000, CHAR_SPACING, FONT_SCALE);
-                c.stroke_rect(px - 3, y + FOOTER_Y - 5, 22, 29, 0xFFFF0000, 1);
-            } else {
-                c.draw_text(songcore::hex2(p).substr(1), px + 3, y + FOOTER_Y + 2,
-                            0xFFFFFFFF, CHAR_SPACING, FONT_SCALE);
+                c.stroke_rect(px - 5, y + FOOTER_Y - 7, 26, 33, 0xFFFF0000, 3);
             }
         } else {
             const bool filledPage = [&] {

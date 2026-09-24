@@ -38,15 +38,13 @@ int main() {
     assert(result.operation == pt::ui::BanksOperation::CUE_ALL_TRACKS_PATTERN_COLUMN);
     assert(result.pattern == 4);
 
-    // D-pad down from the last track enters the bank selector; the selector is horizontal.
+    // The D-pad never enters the footer bank numbers. Bank changes are a modifier gesture.
     state.cursorTrack = sequencer::TRACK_COUNT - 1;
     state.cursorColumn = 4;
     state.bankSelector = false;
     view.move(state, 0, 1);
-    assert(state.bankSelector);
-    const int oldBank = state.bank;
-    view.move(state, 1, 0);
-    assert(state.bank == oldBank + 1);
+    assert(!state.bankSelector);
+    assert(state.cursorTrack == sequencer::TRACK_COUNT - 1);
 
     std::cout << "banks view tests: PASS\n";
 }

@@ -95,14 +95,17 @@ struct AppState {
     int seqBanksCursorTrack = 0;
     int seqBanksCursorColumn = 0; // -1 = ?, 0..F = pattern
     bool seqBanksBankSelector = false;
+    bool seqBanksAllCursor = false;
     int seqPatternTrack = 0;
     int seqPatternCursorStep = 0;
-    int seqPatternParameter = 0; // PatternParameter::NOTE
+    int seqPatternParameter = 0; // visible footer parameter index: N..A, ALL^
+    int seqPatternHeaderControl = 0; // 0 grid, 1 direction, 2 shuffle
     int seqArrangePage = 0;
     int seqArrangeCursorRow = 0;
     int seqArrangeCursorColumn = 0;
     bool seqArrangePageSelector = false;
     bool seqPatternRateLengthHighlight = false;
+    bool seqPatternFxPickerPersistent = false;
     bool seqStepClipboardValid = false;
     bool seqPatternClipboardValid = false;
     sequencer::Pattern seqPatternClipboard{};

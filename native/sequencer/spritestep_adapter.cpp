@@ -12,11 +12,13 @@ SPRITESTEPAdapter::SPRITESTEPAdapter(Project& sequenceProject, songcore::Project
 }
 
 void SPRITESTEPAdapter::start(int scene, int64_t frame) {
+    sequencer_.set_tempo(audioProject_.tempo);
     sequencer_.start_arrange(scene, frame);
     scheduler_.set_clock(frame);
 }
 
 void SPRITESTEPAdapter::start_banks(int bank, const std::array<int, TRACK_COUNT>& patterns, int64_t frame) {
+    sequencer_.set_tempo(audioProject_.tempo);
     sequencer_.start_banks(bank, patterns, frame);
     scheduler_.set_clock(frame);
 }

@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "../songcore/effects.h"
+#include "../songcore/scales.h"
 
 namespace sequencer {
 namespace {
@@ -16,22 +17,30 @@ uint32_t next_random(uint32_t& state) {
     return state;
 }
 
-songcore::Note random_note(uint32_t& state) {
-    // Keep generated notes in a useful musical register (C3..B5), rather than producing arbitrary
-    // MIDI values that are difficult to audition on the handheld.
+songcore::Note random_note(uint32_t& state, unsigned scaleMask, int scaleKey) {
+    // Keep generated notes in C3..B5, then snap them to the project's global SCALE. The same
+    // scale/key pair is used by Pattern note entry and playback quantization.
     const int midi = 48 + static_cast<int>(next_random(state) % 36);
-    return songcore::note_from_midi(midi);
+    int snapped = midi;
+    for (int d = 0; d < 12; ++d) {
+        const int up = midi + d;
+        const int degree = ((up - scaleKey) % 12 + 12) % 12;
+        if (up <= 127 && (scaleMask & (1u << degree))) { snapped = up; break; }
+        const int down = midi - d;
+        const int downDegree = ((down - scaleKey) % 12 + 12) % 12;
+        if (d > 0 && down >= 0 && (scaleMask & (1u << downDegree))) { snapped = down; break; }
+    }
+    return songcore::note_from_midi(snapped);
 }
 
-void randomize_step(PatternStep& step, uint32_t& state) {
+void randomize_step(PatternStep& step, uint32_t& state, unsigned scaleMask, int scaleKey) {
     step = PatternStep{};
 
-    // Roughly one quarter of generated steps are intentionally empty. This keeps random patterns
-    // playable rather than producing a wall of simultaneous notes.
-    if ((next_random(state) % 4) != 0)
-        step.note = random_note(state);
+    // Choose occupancy FIRST. Empty steps stay genuinely empty so the randomizer produces a pattern
+    // of notes rather than eight rows of boxes containing only random default/FX data.
+    if ((next_random(state) % 3) == 0) return;
 
-    // Instrument 0 remains the SPRITESTEP "no instrument override" value.
+    step.note = random_note(state, scaleMask, scaleKey);
     step.instrument = static_cast<int>(next_random(state) % 8);
     step.volume = static_cast<int>(next_random(state) % 128);
 
@@ -79,11 +88,11 @@ void BanksController::clear_track_pattern(int track, int bank, int pattern) {
     clear_pattern(pattern_at(project_, track, bank, pattern));
 }
 
-void BanksController::randomize_track_pattern(int track, int bank, int pattern, uint32_t seed) {
+void BanksController::randomize_track_pattern(int track, int bank, int pattern, uint32_t seed, unsigned scaleMask, int scaleKey) {
     Pattern& p = pattern_at(project_, track, bank, pattern);
     uint32_t state = seed ? seed : 0x6D2B79F5u;
     for (auto& step : p.steps)
-        randomize_step(step, state);
+        randomize_step(step, state, scaleMask, scaleKey);
 }
 
 void BanksController::clear_all_selected_patterns() {
@@ -91,11 +100,11 @@ void BanksController::clear_all_selected_patterns() {
         clear_track_pattern(track, bank_, pattern_);
 }
 
-void BanksController::randomize_all_selected_patterns(uint32_t seed) {
+void BanksController::randomize_all_selected_patterns(uint32_t seed, unsigned scaleMask, int scaleKey) {
     uint32_t state = seed ? seed : 0x6D2B79F5u;
     for (int track = 0; track < TRACK_COUNT; ++track) {
         // Give every track a distinct stream while remaining deterministic.
-        randomize_track_pattern(track, bank_, pattern_, next_random(state));
+        randomize_track_pattern(track, bank_, pattern_, next_random(state), scaleMask, scaleKey);
     }
 }
 

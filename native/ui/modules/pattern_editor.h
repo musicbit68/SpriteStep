@@ -50,6 +50,13 @@ struct PatternEditorState {
     bool isPlaying = false;
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
     bool rateLengthHighlight = false;
+    // 0 = grid, 1 = direction icon, 2 = shuffle icon. This is a small header focus, reached
+    // by D-pad UP from Track 1 and returned from with D-pad DOWN.
+    int headerControl = 0;
+    int direction = 0;
+    int shuffle = 0;
+    unsigned scaleMask = 0x0FFFu;
+    int scaleKey = 0;
 };
 
 struct PatternEditResult {
@@ -79,6 +86,8 @@ public:
     static void clear_parameter(sequencer::PatternStep& step, PatternParameter p);
     static void clear_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p);
     static std::string parameter_text(const sequencer::PatternStep& step, PatternParameter p);
+    static PatternParameter footer_parameter(int index);
+    static constexpr int FOOTER_PARAMETER_COUNT = 8;
 
 private:
     static const char* parameter_label(PatternParameter p);

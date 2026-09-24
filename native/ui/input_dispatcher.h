@@ -247,7 +247,11 @@ class InputDispatcher {
     bool on_sequencer_screen() const;
     void on_l_seq_left();
     void on_l_seq_right();
+    void on_l_seq_up();
+    void on_l_seq_down();
     void on_l_b_released();
+    void on_l_released();
+    void on_r_released();
     void on_lr_seq_up();
     void on_lr_seq_down();
     void on_lr_seq_left();
@@ -256,6 +260,7 @@ class InputDispatcher {
     // ── A + D-pad: edit the cell under the cursor ────────────────────────────────────────────────
     // A+LEFT/RIGHT step by one, A+UP/DOWN by the large step (16 for a hex byte, an octave for a
     // note). On an FX-TYPE column, A+UP/DOWN instead open the FX helper.
+    void on_a_pressed();
     void on_a_up();
     void on_a_down();
     void on_a_left();

@@ -28,12 +28,12 @@ public:
 
     // ?: deterministic pseudo-randomization. The seed is optional so UI calls can use a changing
     // seed while tests can verify exact behavior. Pattern length is preserved.
-    void randomize_track_pattern(int track, int bank, int pattern, uint32_t seed);
+    void randomize_track_pattern(int track, int bank, int pattern, uint32_t seed, unsigned scaleMask = 0x0FFFu, int scaleKey = 0);
 
     // A+B operations are just repeated track-local operations; keeping this here avoids the UI
     // having to duplicate the meaning of the ALL TRACKS modifier.
     void clear_all_selected_patterns();
-    void randomize_all_selected_patterns(uint32_t seed);
+    void randomize_all_selected_patterns(uint32_t seed, unsigned scaleMask = 0x0FFFu, int scaleKey = 0);
 
 private:
     Project& project_;

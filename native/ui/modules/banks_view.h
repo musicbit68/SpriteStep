@@ -22,7 +22,8 @@ struct BanksViewState {
     bool isPlaying = false;
     int cursorTrack = 0;
     int cursorColumn = 0;
-    bool bankSelector = false;
+    bool bankSelector = false; // retained for compatibility; BANKS never enters the footer with the D-pad
+    bool allCursor = false;     // A held: outline the entire selected pattern column
     Theme theme = theme_classic();
 
     BanksViewState() { selectedPatterns.fill(0); }
@@ -54,7 +55,8 @@ public:
               const sequencer::Project& project) const;
 
     // D-pad navigation. Pattern selection is intentionally per-track; changing the bank changes
-    // which 16 slots are shown, while each row remembers its selected slot.
+    // which 16 slots are shown, while each row remembers its selected slot. The footer is never a
+    // D-pad cursor; bank changes come only from L1 + LEFT/RIGHT.
     void move(BanksViewState& state, int dx, int dy) const;
 
     // BANKS action columns: ? is randomize. The X clear column was removed from the handheld UI.

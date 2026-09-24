@@ -31,11 +31,13 @@ struct NavigationMapState {
 
 class NavigationMapModule {
 public:
-    static constexpr int WIDTH  = 115;
-    static constexpr int HEIGHT = 105;
+    static constexpr int WIDTH  = 65;
+    static constexpr int HEIGHT = 60;
 
-    static constexpr int CELL_WIDTH  = 23;
-    static constexpr int CELL_HEIGHT = 21;
+    // Retained names for callers/tests from the text-map implementation. The compact renderer uses
+    // its own 9px block geometry above.
+    static constexpr int CELL_WIDTH  = 13;
+    static constexpr int CELL_HEIGHT = 12;
 
     void draw(Canvas& c, int x, int y, const NavigationMapState& s) const;
 };

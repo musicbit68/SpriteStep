@@ -141,6 +141,8 @@ void handle_button(const ButtonEvent& e, Dispatcher& d, MapperState& ms, uint64_
                 return;
             }
         }
+        if (e.button == Button::L_SHIFT) d.on_l_released();
+        if (e.button == Button::R_SHIFT) d.on_r_released();
         if (e.button == Button::A) {
             // The DEFERRED single-A: it went down on a sub-screen-opening cell and no A-combo
             // intervened, so the open fires NOW, on the release, rather than on the press.
@@ -298,6 +300,8 @@ void handle_button(const ButtonEvent& e, Dispatcher& d, MapperState& ms, uint64_
             case Button::START: d.on_l_start(); return;
             case Button::DPAD_LEFT: if (d.on_sequencer_screen()) { d.on_l_seq_left(); return; } break;
             case Button::DPAD_RIGHT: if (d.on_sequencer_screen()) { d.on_l_seq_right(); return; } break;
+            case Button::DPAD_UP: if (d.on_sequencer_screen()) { d.on_l_seq_up(); return; } break;
+            case Button::DPAD_DOWN: if (d.on_sequencer_screen()) { d.on_l_seq_down(); return; } break;
             default: break;                           // L+DPAD is the file browser's; it has no screen yet
         }
     }
@@ -365,6 +369,7 @@ void handle_button(const ButtonEvent& e, Dispatcher& d, MapperState& ms, uint64_
             d.on_a_a();          // insert the next UNUSED chain/phrase
         } else {
             ms.lastAPress = now;
+            d.on_a_pressed();
             d.on_button_a();     // insert the LAST-EDITED one
         }
         return;

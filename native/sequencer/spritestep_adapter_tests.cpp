@@ -26,14 +26,17 @@ int main() {
     step.volume = 0x7F;
 
     songcore::Project audioProject = songcore::make_default_project();
-    audioProject.tempo = 120;
+    audioProject.tempo = 60;
 
     Capture capture;
     songcore::MidiRouter router(&capture);
     sequencer::SPRITESTEPAdapter adapter(sequenceProject, audioProject, router, 44100);
     adapter.start();
 
+    // The adapter's sequence model does not own project tempo; the full songcore project does.
+    // Starting at 60 BPM must therefore produce a sixteenth-note grid of 11025 frames at 44.1kHz.
     const int64_t stepFrames = adapter.sequencer().base_step_frames();
+    assert(stepFrames == 11025);
     const size_t count = adapter.schedule_until(stepFrames + 1);
     assert(count == 1);
     assert(capture.note_count == 1);

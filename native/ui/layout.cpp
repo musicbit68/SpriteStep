@@ -180,13 +180,21 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
             case ScreenType::PATTERN: {
                 PatternEditorState ps;
                 for (int tix = 0; tix < songcore::SEQUENCER_TRACKS; ++tix) {
+                    int bank = std::clamp(s.seqBank, 0, songcore::SEQUENCER_BANKS - 1);
+                    int pat = std::clamp(s.seqSelectedPatterns[static_cast<size_t>(tix)], 0, songcore::SEQUENCER_PATTERNS - 1);
+                    // PATTERN is a view of the live BANKS performance. While playing, follow the
+                    // actual pattern each track is sounding; this prevents the editor from silently
+                    // jumping to a different slot just because the BANKS cursor moved.
+                    if (s.isPlaying && s.playheads[static_cast<size_t>(tix)].chainId >= 0) {
+                        bank = std::clamp(s.playheads[static_cast<size_t>(tix)].chainId, 0, songcore::SEQUENCER_BANKS - 1);
+                        pat = std::clamp(s.playheads[static_cast<size_t>(tix)].chainRow, 0, songcore::SEQUENCER_PATTERNS - 1);
+                    }
                     ps.patterns[static_cast<size_t>(tix)] =
                         &p.sequencer.tracks[static_cast<size_t>(tix)]
-                            .banks[static_cast<size_t>(s.seqBank)]
-                            .patterns[static_cast<size_t>(s.seqSelectedPatterns[static_cast<size_t>(tix)])];
-                    ps.banks[static_cast<size_t>(tix)] = s.seqBank;
-                    ps.patternIndices[static_cast<size_t>(tix)] =
-                        s.seqSelectedPatterns[static_cast<size_t>(tix)];
+                            .banks[static_cast<size_t>(bank)]
+                            .patterns[static_cast<size_t>(pat)];
+                    ps.banks[static_cast<size_t>(tix)] = bank;
+                    ps.patternIndices[static_cast<size_t>(tix)] = pat;
                     ps.stepDurationMultipliers[static_cast<size_t>(tix)] =
                         p.sequencer.tracks[static_cast<size_t>(tix)].step_duration_multiplier;
                 }
@@ -196,8 +204,14 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.playhead = s.playheads[ps.track];
                 std::copy(std::begin(s.playheads), std::end(s.playheads), std::begin(ps.playheads));
                 ps.cursorStep = s.seqPatternCursorStep;
-                ps.parameter = static_cast<PatternParameter>(std::clamp(s.seqPatternParameter, 0, 14));
+                ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
                 ps.rateLengthHighlight = s.seqPatternRateLengthHighlight;
+                ps.headerControl = s.seqPatternHeaderControl;
+                const auto& projectScale = songcore::scale_at(p, 0);
+                ps.scaleMask = songcore::scale_mask(projectScale);
+                ps.scaleKey = p.scaleKey;
+                ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(ps.track)].direction);
+                ps.shuffle = p.sequencer.tracks[static_cast<size_t>(ps.track)].shuffle;
                 ps.theme = t;
                 ps.isPlaying = s.isPlaying;
                 pattern_.draw(c, moduleX, EDITOR_Y, ps);
@@ -216,6 +230,7 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 bs.cursorTrack = s.seqBanksCursorTrack;
                 bs.cursorColumn = s.seqBanksCursorColumn;
                 bs.bankSelector = s.seqBanksBankSelector;
+                bs.allCursor = s.seqBanksAllCursor;
                 bs.theme = t;
                 banks_.draw(c, moduleX, EDITOR_Y, bs, p.sequencer);
                 break;
@@ -564,23 +579,12 @@ void TrackerLayout::draw_right_bar(Canvas& c, const AppState& s) const {
     const Theme&             t = s.theme;
     const songcore::Project& p = *s.project;
 
-    // Tempo belongs to the page header, not the matrix/right rail.
-    const int tempoY = EDITOR_Y + TEXT_PADDING;
-    const std::string tempo = "T>" + std::to_string(p.tempo);
-    const int tempoW = Canvas::text_width(tempo, CHAR_SPACING, FONT_SCALE);
-    c.draw_text(tempo, DESIGN_W - SIDE_SPACER - tempoW, tempoY,
-                t.textValue, CHAR_SPACING, FONT_SCALE);
-
     NavigationMapState ns;
     ns.currentScreen      = s.currentScreen;
     ns.sourceColumn       = s.previousColumn;
     ns.instrumentFromPool = s.instrumentFromPool;
     ns.theme              = t;
-    const bool matrixScreen = s.currentScreen == ScreenType::ARRANGE ||
-                              s.currentScreen == ScreenType::BANKS ||
-                              s.currentScreen == ScreenType::PATTERN;
-    if (!matrixScreen)
-        navigationMap_.draw(c, RIGHT_BAR_X, DESIGN_H - NavigationMapModule::HEIGHT - SCREEN_SPACER, ns);
+    navigationMap_.draw(c, DESIGN_W - NavigationMapModule::WIDTH - SIDE_SPACER, DESIGN_H - NavigationMapModule::HEIGHT - SCREEN_SPACER, ns);
 }
 
 void TrackerLayout::draw_placeholder(Canvas& c, int x, int y, ScreenType screen,
