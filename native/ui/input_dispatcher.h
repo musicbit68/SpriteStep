@@ -697,6 +697,13 @@ class InputDispatcher {
      */
     int browser_repeat_factor(int delta);
 
+    // ── PATTERN RANGE EDIT ────────────────────────────────────────────────────────────────────────
+    // FMS-style horizontal range selection. L+B enters/cancels the mode; the cursor becomes the
+    // active edge, and A+D-pad applies the currently selected Pattern parameter to every step in
+    // the inclusive range. L+A copies a selected range and pastes it when no range is active.
+    void apply_pattern_range(InputAction (*fn)(const CursorContext&));
+    void cancel_pattern_range();
+
     // ── The autosave's DEBOUNCE (S10) ────────────────────────────────────────────────────────────
     //
     // Kotlin's is a `LaunchedEffect(projectVersion)` that DELAYS 3 s and is re-keyed — and therefore

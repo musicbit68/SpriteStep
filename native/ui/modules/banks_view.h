@@ -16,6 +16,9 @@ namespace pt::ui {
 struct BanksViewState {
     int bank = 0;
     std::array<int, sequencer::TRACK_COUNT> selectedPatterns{};
+    // One existing instrument chosen by the dispatcher for each track. The randomizer uses this
+    // instrument for every generated note in that track's pattern. -1 means use the model fallback.
+    std::array<int, sequencer::TRACK_COUNT> randomInstruments{};
     std::array<sequencer::TrackCue, sequencer::TRACK_COUNT> cues{};
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
     int blinkPhaseMs = 0;
@@ -26,7 +29,7 @@ struct BanksViewState {
     bool allCursor = false;     // A held: outline the entire selected pattern column
     Theme theme = theme_classic();
 
-    BanksViewState() { selectedPatterns.fill(0); }
+    BanksViewState() { selectedPatterns.fill(0); randomInstruments.fill(-1); }
 };
 
 enum class BanksOperation {

@@ -122,7 +122,8 @@ BanksActionResult BanksViewModule::activate_b(BanksViewState& state, sequencer::
             // A changing seed is supplied by the app in production; a stable seed here keeps the
             // module deterministic for callers/tests that don't maintain their own RNG.
             sequencer::BanksController(project).randomize_track_pattern(
-                result.track, result.bank, result.pattern, 0xBADC0DEu + result.track);
+                result.track, result.bank, result.pattern, 0xBADC0DEu + result.track,
+                0x0FFFu, 0, state.randomInstruments[static_cast<size_t>(result.track)]);
             break;
         default:
             result.operation = BanksOperation::CUE_TRACK_PATTERN;
@@ -142,7 +143,8 @@ BanksActionResult BanksViewModule::activate_a(BanksViewState& state, sequencer::
             result.operation = BanksOperation::RANDOMIZE_ALL_SELECTED;
             for (int track = 0; track < sequencer::TRACK_COUNT; ++track)
                 sequencer::BanksController(project).randomize_track_pattern(
-                    track, state.bank, selected_pattern(state, track), 0xA11CEu + track + state.bank * 17);
+                    track, state.bank, selected_pattern(state, track), 0xA11CEu + track + state.bank * 17,
+                    0x0FFFu, 0, state.randomInstruments[static_cast<size_t>(track)]);
             break;
         default:
             result.operation = BanksOperation::CUE_ALL_TRACKS_PATTERN_COLUMN;

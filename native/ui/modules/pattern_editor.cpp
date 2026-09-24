@@ -383,6 +383,15 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 }
             }
 
+            // FMS-style RANGE EDIT: the selected horizontal span is outlined while the active edge
+            // remains the normal cursor. The range never changes the cell fill or obscures its value.
+            const int rangeFirst = std::min(s.rangeStart, s.rangeEnd);
+            const int rangeLast = std::max(s.rangeStart, s.rangeEnd);
+            const bool rangeCell = selectedTrack && s.rangeActive && step >= rangeFirst && step <= rangeLast;
+            if (rangeCell)
+                c.stroke_rect(sx - 1, rowY - 1, matrix::OCCUPIED_SIZE + 2, matrix::OCCUPIED_SIZE + 2,
+                              PATTERN_CURSOR_RED, 1);
+
             // The editing cursor is an outline outside the 35px cell. It never obscures the
             // note/parameter text and is therefore still obvious on an occupied step.
             if (cursor)
@@ -470,6 +479,22 @@ CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) c
                                     songcore::effect_value_max(code));
         }
     }
+}
+
+bool PatternEditorModule::apply_range_action(sequencer::Pattern& pattern, PatternEditorState& state,
+                                               int startStep, int endStep,
+                                               InputAction (*fn)(const CursorContext&)) const {
+    const int first = std::clamp(std::min(startStep, endStep), 0, pattern.clamped_length() - 1);
+    const int last = std::clamp(std::max(startStep, endStep), 0, pattern.clamped_length() - 1);
+    bool changed = false;
+    for (int step = first; step <= last; ++step) {
+        state.cursorStep = step;
+        const InputAction action = fn(cursor_context(state));
+        if (action.type == ActionType::NONE) continue;
+        const auto result = handle_input(pattern, state, action);
+        changed = changed || result.modified;
+    }
+    return changed;
 }
 
 PatternEditResult PatternEditorModule::handle_input(sequencer::Pattern& pattern, PatternEditorState& state,

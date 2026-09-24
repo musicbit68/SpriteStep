@@ -50,6 +50,9 @@ struct PatternEditorState {
     bool isPlaying = false;
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
     bool rateLengthHighlight = false;
+    bool rangeActive = false;
+    int rangeStart = 0;
+    int rangeEnd = 0;
     // 0 = grid, 1 = direction icon, 2 = shuffle icon. This is a small header focus, reached
     // by D-pad UP from Track 1 and returned from with D-pad DOWN.
     int headerControl = 0;
@@ -76,6 +79,12 @@ public:
     CursorContext cursor_context(const PatternEditorState& s) const;
     PatternEditResult handle_input(sequencer::Pattern& pattern, PatternEditorState& state,
                                    const InputAction& action) const;
+
+    // Apply one normal cursor action to every step in an inclusive horizontal range. Each step gets
+    // its own CursorContext, so scale-aware notes, hex wrap/clamp rules, and FX slot creation retain
+    // exactly the same semantics as a single-step edit.
+    bool apply_range_action(sequencer::Pattern& pattern, PatternEditorState& state, int startStep,
+                            int endStep, InputAction (*fn)(const CursorContext&)) const;
 
     static bool step_has_data(const sequencer::PatternStep& step);
     static bool parameter_present(const sequencer::PatternStep& step, PatternParameter p);

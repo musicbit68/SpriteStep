@@ -10,7 +10,8 @@ int main() {
                                   (1u << 7) | (1u << 9) | (1u << 11);
 
     sequencer::BanksController banks(project);
-    banks.randomize_track_pattern(0, 0, 0, 0x12345678u, C_MAJOR, 0);
+    constexpr int TRACK_INSTRUMENT = 7;
+    banks.randomize_track_pattern(0, 0, 0, 0x12345678u, C_MAJOR, 0, TRACK_INSTRUMENT);
 
     bool sawEmpty = false;
     bool sawNote = false;
@@ -22,6 +23,7 @@ int main() {
             continue;
         }
         sawNote = true;
+        assert(step.instrument == TRACK_INSTRUMENT);
         const int midi = songcore::note_to_midi(step.note);
         const int degree = ((midi % 12) + 12) % 12;
         assert((C_MAJOR & (1u << degree)) != 0);

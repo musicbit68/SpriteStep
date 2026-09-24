@@ -33,7 +33,7 @@ songcore::Note random_note(uint32_t& state, unsigned scaleMask, int scaleKey) {
     return songcore::note_from_midi(snapped);
 }
 
-void randomize_step(PatternStep& step, uint32_t& state, unsigned scaleMask, int scaleKey) {
+void randomize_step(PatternStep& step, uint32_t& state, unsigned scaleMask, int scaleKey, int instrumentId) {
     step = PatternStep{};
 
     // Choose occupancy FIRST. Empty steps stay genuinely empty so the randomizer produces a pattern
@@ -41,7 +41,10 @@ void randomize_step(PatternStep& step, uint32_t& state, unsigned scaleMask, int 
     if ((next_random(state) % 3) == 0) return;
 
     step.note = random_note(state, scaleMask, scaleKey);
-    step.instrument = static_cast<int>(next_random(state) % 8);
+    // The UI supplies one valid existing instrument per track. Keeping the instrument fixed for the
+    // generated pattern makes BANKS randomization behave like a track-level pattern generator rather
+    // than silently changing timbre on every step.
+    step.instrument = std::clamp(instrumentId, 0, 127);
     step.volume = static_cast<int>(next_random(state) % 128);
 
     static constexpr int FX[] = {
@@ -88,11 +91,11 @@ void BanksController::clear_track_pattern(int track, int bank, int pattern) {
     clear_pattern(pattern_at(project_, track, bank, pattern));
 }
 
-void BanksController::randomize_track_pattern(int track, int bank, int pattern, uint32_t seed, unsigned scaleMask, int scaleKey) {
+void BanksController::randomize_track_pattern(int track, int bank, int pattern, uint32_t seed, unsigned scaleMask, int scaleKey, int instrumentId) {
     Pattern& p = pattern_at(project_, track, bank, pattern);
     uint32_t state = seed ? seed : 0x6D2B79F5u;
     for (auto& step : p.steps)
-        randomize_step(step, state, scaleMask, scaleKey);
+        randomize_step(step, state, scaleMask, scaleKey, instrumentId);
 }
 
 void BanksController::clear_all_selected_patterns() {

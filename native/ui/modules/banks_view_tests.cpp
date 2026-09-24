@@ -20,6 +20,14 @@ int main() {
     auto result = view.activate_b(state, project);
     assert(result.operation == pt::ui::BanksOperation::RANDOMIZE_TRACK_PATTERN);
 
+    // The randomizer receives one instrument per track and applies it consistently to every
+    // generated note in that track's pattern.
+    state.cursorColumn = -1;
+    state.randomInstruments.fill(5);
+    view.activate_b(state, project);
+    for (const auto& step : project.tracks[2].banks[0].patterns[1].steps)
+        if (step.note != songcore::Note::EMPTY()) assert(step.instrument == 5);
+
     // Pattern + B is a cue request, not an immediate pattern replacement.
     state.cursorColumn = 7;
     state.selectedPatterns.fill(7);

@@ -206,6 +206,9 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.cursorStep = s.seqPatternCursorStep;
                 ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
                 ps.rateLengthHighlight = s.seqPatternRateLengthHighlight;
+                ps.rangeActive = s.seqPatternRangeActive;
+                ps.rangeStart = s.seqPatternRangeAnchor;
+                ps.rangeEnd = s.seqPatternRangeEnd;
                 ps.headerControl = s.seqPatternHeaderControl;
                 const auto& projectScale = songcore::scale_at(p, 0);
                 ps.scaleMask = songcore::scale_mask(projectScale);

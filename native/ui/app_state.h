@@ -106,6 +106,15 @@ struct AppState {
     bool seqArrangePageSelector = false;
     bool seqPatternRateLengthHighlight = false;
     bool seqPatternFxPickerPersistent = false;
+    // FMS-style horizontal RANGE EDIT on the Pattern page. The anchor remains fixed while
+    // seqPatternRangeEnd follows the editing cursor. Range operations affect the selected footer
+    // parameter across every step in the inclusive range.
+    bool seqPatternRangeActive = false;
+    int seqPatternRangeAnchor = 0;
+    int seqPatternRangeEnd = 0;
+    bool seqPatternRangeClipboardValid = false;
+    int seqPatternRangeClipboardLength = 0;
+    sequencer::Pattern seqPatternRangeClipboard{};
     bool seqStepClipboardValid = false;
     bool seqPatternClipboardValid = false;
     sequencer::Pattern seqPatternClipboard{};

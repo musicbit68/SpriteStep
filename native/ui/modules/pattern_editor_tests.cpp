@@ -9,6 +9,8 @@ using namespace songcore;
 int main() {
     sequencer::Pattern p;
     p.length = 8;
+    constexpr unsigned C_MAJOR = (1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) |
+                                  (1u << 7) | (1u << 9) | (1u << 11);
 
     assert(!PatternEditorModule::step_has_data(p.steps[0]));
     assert(!PatternEditorModule::parameter_present(p.steps[0], PatternParameter::VOLUME));
@@ -103,6 +105,32 @@ int main() {
     const auto ctx = module.cursor_context(state);
     assert(ctx.valueType == CursorValueType::VOLUME);
     assert(ctx.currentValue == 0x40);
+
+    // FMS-style Range Edit: the selected parameter is edited independently on every step in the
+    // horizontal span, using each step's own CursorContext.
+    state.parameter = PatternParameter::VOLUME;
+    p.steps[1].volume = 0x20;
+    p.steps[2].volume = 0x40;
+    p.steps[3].volume = 0x60;
+    state.cursorStep = 1;
+    const bool rangeChanged = module.apply_range_action(p, state, 1, 3, pt::ui::increment);
+    assert(rangeChanged);
+    assert(p.steps[1].volume == 0x21);
+    assert(p.steps[2].volume == 0x41);
+    assert(p.steps[3].volume == 0x61);
+
+    // Range note editing remains scale-aware on each individual step.
+    state.parameter = PatternParameter::NOTE;
+    state.scaleMask = C_MAJOR;
+    state.scaleKey = 0;
+    p.steps[1].note = Note::C4();
+    p.steps[2].note = songcore::note_from_midi(62);
+    p.steps[3].note = songcore::note_from_midi(64);
+    const bool noteRangeChanged = module.apply_range_action(p, state, 1, 3, pt::ui::increment);
+    assert(noteRangeChanged);
+    assert(songcore::note_to_midi(p.steps[1].note) == 62);
+    assert(songcore::note_to_midi(p.steps[2].note) == 64);
+    assert(songcore::note_to_midi(p.steps[3].note) == 65);
 
     std::cout << "pattern editor tests: PASS\n";
     return 0;
