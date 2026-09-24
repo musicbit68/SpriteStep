@@ -2061,9 +2061,10 @@ void InputDispatcher::seq_a_action() {
         const int pat = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(track)], 0, songcore::SEQUENCER_PATTERNS - 1);
         auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(s_.seqBank)].patterns[static_cast<size_t>(pat)];
         const size_t index = static_cast<size_t>(std::clamp(s_.seqPatternCursorStep, 0, pattern.clamped_length() - 1));
-        // A focuses the cell on NOTE editing. An empty cell gets the standard C4 note so the
-        // existing A+D-pad note editor has something concrete to edit immediately.
-        s_.seqPatternParameter = 0;
+        // A edits the currently selected Pattern parameter. Do NOT reset the parameter to NOTE here:
+        // L1+LEFT/RIGHT selects the footer parameter, and A must preserve that selection. On an empty
+        // cell, the initial A still creates the standard C4 note so the cell has a concrete step to edit;
+        // the selected parameter remains unchanged.
         if (pattern.steps[index].note == songcore::Note::EMPTY()) {
             pattern.steps[index].note = songcore::note_from_midi(60);
             mark_modified();
