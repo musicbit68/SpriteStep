@@ -335,9 +335,10 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool active = step_has_data(data) || p->conditions[si] != 0 ||
                                 p->wait_ppqn[si] != 0 || p->trigless[si] != 0;
             const bool cursor = selectedTrack && step == s.cursorStep;
-            if (active || cursor) {
-                const Argb fill = cursor ? t.rowCursor : t.textValue;
-                c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, fill);
+            if (active) {
+                // The editing cursor is an outline, not a filled selection.  Keep the cell's
+                // normal rendering intact so the value underneath remains visible.
+                c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.textValue);
 
                 // Only the NOTE parameter uses the two-line pitch display.  When another
                 // parameter is selected, the cell must show THAT parameter's value even when the
@@ -346,9 +347,9 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 if (s.parameter == PatternParameter::NOTE && data.note != songcore::Note::EMPTY()) {
                     const std::string pitch = songcore::NOTE_NAMES[data.note.pitch];
                     c.draw_text(pitch, sx, rowY + 1,
-                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                                t.background, CHAR_SPACING, FONT_SCALE);
                     c.draw_text(std::to_string(data.note.octave), sx + 10, rowY + 18,
-                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                                t.background, CHAR_SPACING, FONT_SCALE);
                 } else {
                     std::string value = pattern_parameter_text(*p, step, s.parameter);
                     if (s.parameter == PatternParameter::MORE && s.selectedFxCode != songcore::FX_NONE) {
@@ -356,9 +357,9 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                         value = fxSlot ? hex2(songcore::step_fx_value(p->steps[static_cast<size_t>(step)], fxSlot)) : "--";
                     }
                     c.draw_text(value, sx + 2, rowY + 9,
-                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                                t.background, CHAR_SPACING, FONT_SCALE);
                 }
-            } else {
+            } else if (!cursor) {
                 const int mx = sx + matrix::empty_offset();
                 const int my = rowY + matrix::empty_offset();
                 c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);

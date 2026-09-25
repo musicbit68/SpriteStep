@@ -781,8 +781,14 @@ bool InputDispatcher::apply_edit(const InputAction& action) {
             const int pat = std::clamp(s_.seqSelectedPatterns[static_cast<size_t>(track)], 0, songcore::SEQUENCER_PATTERNS - 1);
             auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(s_.seqBank)].patterns[static_cast<size_t>(pat)];
             PatternEditorState ps;
-            ps.track = track; ps.cursorStep = s_.seqPatternCursorStep;
-            ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+            ps.track = track;
+            ps.cursorStep = s_.seqPatternCursorStep;
+            ps.parameter = PatternEditorModule::footer_parameter(
+                std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+            // ALL^ keeps the effect selected by the FX picker in AppState.  Carry that code into
+            // the module on every normal edit action; without it, A+DPAD reaches cursor_context()
+            // with FX_NONE and therefore has no effect to edit after the picker has been closed.
+            ps.selectedFxCode = s_.seqPatternSelectedFxCode;
             const auto r = pattern_.handle_input(pattern, ps, action);
             return r.modified;
         }
