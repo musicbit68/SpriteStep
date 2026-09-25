@@ -1,7 +1,9 @@
 #include "ui/modules/pattern_editor.h"
+#include "ui/fx_helper.h"
 
 #include <cassert>
 #include <iostream>
+#include <vector>
 
 using namespace pt::ui;
 using namespace songcore;
@@ -146,6 +148,46 @@ int main() {
     result = module.handle_input(p, state, InputAction::of(ActionType::DELETE));
     assert(result.modified);
     assert(!step_has_fx(p.steps[4], FX_PAN));
+
+    // Parameter randomization: one gesture changes only the selected parameter, and an empty cell
+    // receives a real note so the randomized value is immediately meaningful during playback.
+    state.parameter = PatternParameter::VOLUME;
+    state.selectedFxCode = FX_NONE;
+    state.cursorStep = 5;
+    const std::vector<int> instrumentPool{2, 7, 11};
+    assert(PatternEditorModule::randomize_parameter(p, 5, PatternParameter::VOLUME, FX_NONE,
+                                                    0x12345678u, C_MAJOR, 0, &instrumentPool));
+    assert(p.steps[5].note != Note::EMPTY());
+    assert(p.steps[5].volume >= 48 && p.steps[5].volume <= 127);
+
+    assert(PatternEditorModule::randomize_parameter(p, 6, PatternParameter::PAN, FX_NONE,
+                                                    0xCAFEBABEu, C_MAJOR, 0, &instrumentPool));
+    assert(step_has_fx(p.steps[6], FX_PAN));
+
+    assert(PatternEditorModule::randomize_parameter(p, 7, PatternParameter::MORE, FX_DRV,
+                                                    0xDEADBEEFu, C_MAJOR, 0, &instrumentPool));
+    assert(step_has_fx(p.steps[7], FX_DRV));
+    int drvSlot = 0;
+    for (int slot = 1; slot <= 3; ++slot) if (step_fx_type(p.steps[7], slot) == FX_DRV) drvSlot = slot;
+    assert(drvSlot != 0);
+    assert(step_fx_value(p.steps[7], drvSlot) <= 192);
+
+    // ALL^ deliberately omits destructive/playback/meta commands and parameters already exposed in
+    // the Pattern footer, while retaining useful per-step sound-shaping effects.
+    const auto& allFx = fx_layout_pattern_all();
+    assert(allFx.count() == 1);
+    const auto& codes = allFx.groups[0].codes;
+    auto hasFx = [&](int code) {
+        for (int c : codes) if (c == code) return true;
+        return false;
+    };
+    assert(!hasFx(FX_KILL)); assert(!hasFx(FX_HOP)); assert(!hasFx(FX_GRV));
+    assert(!hasFx(FX_RND)); assert(!hasFx(FX_RNL)); assert(!hasFx(FX_TBL));
+    assert(!hasFx(FX_THO)); assert(!hasFx(FX_TIC)); assert(!hasFx(FX_AUS)); assert(!hasFx(FX_AUF));
+    assert(!hasFx(FX_VOLUME)); assert(!hasFx(FX_PAN)); assert(!hasFx(FX_PSL));
+    assert(!hasFx(FX_CHA)); assert(!hasFx(FX_ARPEGGIO));
+    assert(hasFx(FX_RSEND)); assert(hasFx(FX_DSEND));
+    assert(hasFx(FX_DRV)); assert(hasFx(FX_CRU)); assert(hasFx(FX_CUT)); assert(hasFx(FX_RES));
 
     std::cout << "pattern editor tests: PASS\n";
     return 0;

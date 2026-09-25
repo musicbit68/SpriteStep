@@ -210,9 +210,6 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.rangeStart = s.seqPatternRangeAnchor;
                 ps.rangeEnd = s.seqPatternRangeEnd;
                 ps.headerControl = s.seqPatternHeaderControl;
-                // ALL^ is a UI selection rather than pattern data. Pass the selected effect code
-                // through so the renderer can show the value being edited.
-                ps.selectedFxCode = s.seqPatternSelectedFxCode;
                 const auto& projectScale = songcore::scale_at(p, 0);
                 ps.scaleMask = songcore::scale_mask(projectScale);
                 ps.scaleKey = p.scaleKey;

@@ -243,7 +243,7 @@ void handle_button(const ButtonEvent& e, Dispatcher& d, MapperState& ms, uint64_
     // reject the very gesture it is trying to match. R may be held here only when R IS the button.
     if (m.select && !m.l && (!m.r || e.button == Button::R_SHIFT)) {
         switch (e.button) {
-            case Button::A:       d.on_select_a(); return;   // rename     (opens the keyboard)
+            case Button::A:       d.on_select_a(); return;   // Pattern: randomize parameter; Browser: rename
             case Button::B:       d.on_select_b(); return;   // delete     (arms the confirm)
             case Button::R_SHIFT: d.on_select_r(); return;   // new folder (opens the keyboard)
             default: break;

@@ -3,6 +3,8 @@
 #include <array>
 #include <functional>
 #include <string>
+#include <cstdint>
+#include <vector>
 
 #include "sequencer/sequencer_model.h"
 #include "ui/canvas.h"
@@ -96,6 +98,11 @@ public:
     static void clear_parameter(sequencer::PatternStep& step, PatternParameter p);
     static int ensure_fx_slot(sequencer::PatternStep& step, int code);
     static void clear_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p);
+    // Randomize only the selected Pattern parameter. The seed is supplied by the UI gesture so a
+    // repeated SELECT+A produces a fresh result without relying on libc/global RNG state.
+    static bool randomize_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p,
+                                    int selectedFxCode, uint32_t seed, unsigned scaleMask = 0x0FFFu,
+                                    int scaleKey = 0, const std::vector<int>* instrumentPool = nullptr);
     static std::string parameter_text(const sequencer::PatternStep& step, PatternParameter p);
     static PatternParameter footer_parameter(int index);
     static constexpr int FOOTER_PARAMETER_COUNT = 8;

@@ -265,6 +265,37 @@ inline const FxLayout& fx_layout_full() {
     return full;
 }
 
+// Pattern ALL^ is deliberately a different surface from the normal Phrase/Table FX picker.
+// It is the compact collection of per-step FX that are not already first-class Pattern footer
+// parameters, while omitting playback/meta commands that are poor candidates for casual step editing.
+// Keep this list explicit: changing the general FX picker must not silently change ALL^.
+inline const FxLayout& fx_layout_pattern_all() {
+    static const FxLayout all = [] {
+        // Excluded: KIL/HOP/GRV/RND/RNL/TBL/THO/TIC/AUS/AUF (playback, random/meta, or positional
+        // automation commands), plus PAN/PSL/CHA/ARP because those already have dedicated
+        // Pattern footer parameters. REV/DEL remain here because they are not Pattern footer parameters.
+        // VOL/INST are likewise already first-class Pattern columns.
+        static constexpr int CODES[] = {
+            songcore::FX_LAT, songcore::FX_ARC,
+            songcore::FX_OFFSET, songcore::FX_REPEAT,
+            songcore::FX_PBN, songcore::FX_PVB, songcore::FX_PVX, songcore::FX_PIT,
+            songcore::FX_SLI, songcore::FX_BCK,
+            songcore::FX_EQN, songcore::FX_CUT, songcore::FX_RES,
+            songcore::FX_RSEND, songcore::FX_DSEND,
+            songcore::FX_LPF, songcore::FX_HPF, songcore::FX_BPF,
+            songcore::FX_DRV, songcore::FX_CRU, songcore::FX_FIN, songcore::FX_TSX, songcore::FX_LPO
+        };
+        FxLayout out;
+        FxGroup g;
+        g.title = "PATTERN FX";
+        g.codes.push_back(songcore::FX_NONE);
+        g.codes.insert(g.codes.end(), std::begin(CODES), std::end(CODES));
+        out.groups.push_back(std::move(g));
+        return out;
+    }();
+    return all;
+}
+
 struct FxHelperState {
     bool     isOpen    = false;
     int      group     = 0;   // the expanded group — and the one the cursor is in

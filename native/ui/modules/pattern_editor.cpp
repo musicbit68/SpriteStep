@@ -1,6 +1,7 @@
 #include "ui/modules/pattern_editor.h"
 
 #include <algorithm>
+#include <vector>
 
 #include "songcore/effects.h"
 #include "songcore/scales.h"
@@ -335,10 +336,9 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool active = step_has_data(data) || p->conditions[si] != 0 ||
                                 p->wait_ppqn[si] != 0 || p->trigless[si] != 0;
             const bool cursor = selectedTrack && step == s.cursorStep;
-            if (active) {
-                // The editing cursor is an outline, not a filled selection.  Keep the cell's
-                // normal rendering intact so the value underneath remains visible.
-                c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, t.textValue);
+            if (active || cursor) {
+                const Argb fill = cursor ? t.rowCursor : t.textValue;
+                c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, fill);
 
                 // Only the NOTE parameter uses the two-line pitch display.  When another
                 // parameter is selected, the cell must show THAT parameter's value even when the
@@ -347,9 +347,9 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                 if (s.parameter == PatternParameter::NOTE && data.note != songcore::Note::EMPTY()) {
                     const std::string pitch = songcore::NOTE_NAMES[data.note.pitch];
                     c.draw_text(pitch, sx, rowY + 1,
-                                t.background, CHAR_SPACING, FONT_SCALE);
+                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
                     c.draw_text(std::to_string(data.note.octave), sx + 10, rowY + 18,
-                                t.background, CHAR_SPACING, FONT_SCALE);
+                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
                 } else {
                     std::string value = pattern_parameter_text(*p, step, s.parameter);
                     if (s.parameter == PatternParameter::MORE && s.selectedFxCode != songcore::FX_NONE) {
@@ -357,9 +357,9 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                         value = fxSlot ? hex2(songcore::step_fx_value(p->steps[static_cast<size_t>(step)], fxSlot)) : "--";
                     }
                     c.draw_text(value, sx + 2, rowY + 9,
-                                t.background, CHAR_SPACING, FONT_SCALE);
+                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
                 }
-            } else if (!cursor) {
+            } else {
                 const int mx = sx + matrix::empty_offset();
                 const int my = rowY + matrix::empty_offset();
                 c.fill_rect(mx, my, matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
@@ -490,6 +490,113 @@ CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) c
                                     songcore::effect_value_max(code));
         }
     }
+}
+
+namespace {
+uint32_t random_step_value(uint32_t& state) {
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+int random_in_range(uint32_t& state, int minValue, int maxValue) {
+    if (maxValue <= minValue) return minValue;
+    return minValue + static_cast<int>(random_step_value(state) % static_cast<uint32_t>(maxValue - minValue + 1));
+}
+
+int random_scale_midi(uint32_t& state, unsigned scaleMask, int scaleKey) {
+    const int raw = random_in_range(state, 48, 83);
+    for (int d = 0; d <= 12; ++d) {
+        const int up = raw + d;
+        const int upDegree = ((up - scaleKey) % 12 + 12) % 12;
+        if (up <= 127 && (scaleMask & (1u << upDegree))) return up;
+        if (d == 0) continue;
+        const int down = raw - d;
+        const int downDegree = ((down - scaleKey) % 12 + 12) % 12;
+        if (down >= 0 && (scaleMask & (1u << downDegree))) return down;
+    }
+    return raw;
+}
+}
+
+bool PatternEditorModule::randomize_parameter(sequencer::Pattern& pattern, int stepIndex,
+                                                PatternParameter p, int selectedFxCode,
+                                                uint32_t seed, unsigned scaleMask, int scaleKey,
+                                                const std::vector<int>* instrumentPool) {
+    if (stepIndex < 0 || stepIndex >= pattern.clamped_length()) return false;
+    uint32_t state = seed ? seed : 0x9E3779B9u;
+    auto& step = pattern.steps[static_cast<size_t>(stepIndex)];
+
+    auto random_fx_value = [&](int code) {
+        switch (code) {
+            case songcore::FX_LAT:    return random_in_range(state, 1, 32);
+            case songcore::FX_REPEAT: return random_in_range(state, 0x11, 0x44);
+            case songcore::FX_BCK:    return random_in_range(state, 0, 1);
+            case songcore::FX_CHA:    return random_in_range(state, 32, 255);
+            case songcore::FX_DRV:    return random_in_range(state, 0, 192);
+            case songcore::FX_CRU:    return random_in_range(state, 0, 8) * 0x11;
+            case songcore::FX_CUT:
+            case songcore::FX_RES:
+            case songcore::FX_LPF:
+            case songcore::FX_HPF:
+            case songcore::FX_BPF:    return random_in_range(state, 16, 240);
+            case songcore::FX_RSEND:
+            case songcore::FX_DSEND:  return random_in_range(state, 0, 224);
+            case songcore::FX_PBN:
+            case songcore::FX_PVB:
+            case songcore::FX_PVX:
+            case songcore::FX_PIT:
+            case songcore::FX_FIN:    return random_in_range(state, 32, 224);
+            case songcore::FX_TSX:    return random_in_range(state, 1, 3) == 1 ? 0x01 : (random_in_range(state, 0, 1) ? 0xFF : 0x02);
+            default:                  return random_in_range(state, 0, songcore::effect_value_max(code));
+        }
+    };
+
+    if (p == PatternParameter::MORE) {
+        if (selectedFxCode == songcore::FX_NONE) return false;
+        const int slot = ensure_fx_slot(step, selectedFxCode);
+        const int before = songcore::step_fx_value(step, slot);
+        const int value = random_fx_value(selectedFxCode);
+        songcore::step_set_fx_value(step, slot, value);
+        return before != value;
+    }
+
+    // A randomized parameter on an empty cell needs a note to make the result musically observable,
+    // matching the normal Pattern-page A edit behavior.
+    if (step.note == songcore::Note::EMPTY())
+        step.note = songcore::note_from_midi(random_scale_midi(state, scaleMask, scaleKey));
+
+    switch (p) {
+        case PatternParameter::NOTE:
+            set_parameter(step, p, random_scale_midi(state, scaleMask, scaleKey));
+            return true;
+        case PatternParameter::INSTRUMENT:
+            if (!instrumentPool || instrumentPool->empty()) return false;
+            set_parameter(step, p, (*instrumentPool)[static_cast<size_t>(random_step_value(state) % instrumentPool->size())]);
+            return true;
+        case PatternParameter::VOLUME:
+            set_parameter(step, p, random_in_range(state, 48, 127));
+            return true;
+        default:
+            break;
+    }
+
+    if (!parameter_editable(p)) return false;
+    const int code = fx_code(p);
+    if (code == songcore::FX_NONE) return false;
+    const int slot = ensure_fx_slot(step, code);
+    const int before = songcore::step_fx_value(step, slot);
+    const int value = random_fx_value(code);
+    if (p == PatternParameter::CRUSH || p == PatternParameter::DOWNSAMPLE) {
+        int packed = songcore::step_fx_value(step, slot);
+        if (p == PatternParameter::CRUSH) packed = (packed & 0x0F) | ((value & 0x0F) << 4);
+        else packed = (packed & 0xF0) | (value & 0x0F);
+        songcore::step_set_fx_value(step, slot, packed);
+        return before != packed;
+    }
+    songcore::step_set_fx_value(step, slot, value);
+    return before != value;
 }
 
 bool PatternEditorModule::apply_range_action(sequencer::Pattern& pattern, PatternEditorState& state,
