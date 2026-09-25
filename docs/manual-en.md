@@ -1,7 +1,9 @@
 # SPRITESTEP User Manual
 
-**Manual revision:** 1.3  
-**Covers:** SPRITESTEP 0.9.7
+**Manual revision:** 2.1 — handheld sequencer and Pattern editing update  
+**Covers:** SPRITESTEP 0.9.8 / current SPRITESTEP handheld UI
+
+> **Testing note:** This manual incorporates the current handheld sequencer, Range Edit, Bank randomization, Pattern parameter randomization, and Pattern ALL^ changes. Native Pattern Editor/UI regression tests pass. Hardware behavior should still be verified on the target handheld after each release build.
 
 ---
 
@@ -12,10 +14,10 @@
 3. [Interface Overview](#3-interface-overview)
 4. [Navigation](#4-navigation)
 5. [Controls Reference](#5-controls-reference)
-6. [Song Structure](#6-song-structure)
-7. [SONG Screen](#7-song-screen)
-8. [CHAIN Screen](#8-chain-screen)
-9. [PHRASE Screen](#9-phrase-screen)
+6. [SPRITESTEP Sequencer](#6-spritestep-sequencer)
+7. [ARRANGE Screen](#7-arrange-screen)
+8. [BANKS Screen](#8-banks-screen)
+9. [PATTERN Screen](#9-pattern-screen)
 10. [INSTRUMENT Screen](#10-instrument-screen)
 11. [SAMPLE EDITOR Screen](#11-sample-editor-screen)
 12. [TABLE Screen](#12-table-screen)
@@ -34,8 +36,6 @@
 25. [Workflow Tips](#25-workflow-tips)
 26. [Configuration File (config.json)](#26-configuration-file-configjson)
 27. [Appendix: Controls Cheat Sheet](#appendix-controls-cheat-sheet)
-
----
 
 ## 1. Introduction
 
@@ -131,449 +131,481 @@ On Linux, Windows and PortMaster handhelds there is no folder to choose: the app
 
 ## 3. Interface Overview
 
-The entire UI renders at a fixed **640×480** pixel canvas, letterboxed on larger screens.
+SPRITESTEP's handheld sequencer UI is designed around a fixed **640×480** canvas and an 8-track,
+16-step matrix. The current top-level navigation is deliberately compact:
 
-```
-┌────────────────────────────────────────────────┐
-│  VISUALIZER  (620×70 px)                       │
-├──────────────────────────────┬─────────────────┤
-│                              │  NAV MAP        │
-│  MAIN EDITOR                 │  (80×105 px)    │
-│  (varies by screen)          │                 │
-│                              │  STATUS LINE    │
-│                              │                 │
-└──────────────────────────────┴─────────────────┘
+```text
+ARRANGE   BANKS   PATTERN   INSTRUMENT   MODS
 ```
 
-**Visualizer** — the top bar displays real-time audio. It has six display modes you can switch in SETTINGS:
+The visible sequencer hierarchy is:
 
-| Mode | What it shows |
-|---|---|
-| SCOPE | Classic oscilloscope waveform (ProTracker-style pixel dots) |
-| FLAT | Blank bar (saves battery / CPU) |
-| OCTA | Mini-scopes side by side, one per active track |
-| OCTA.F | All 8 track scopes at once (active or not) |
-| SPECT | 40-bin FFT spectrum |
-| SPCT.P | FFT spectrum with peak-hold dots |
+```text
+PROJECT
+├── INSTRUMENTS
+├── MODULATIONS
+├── TRACK 1
+│   ├── BANK 0
+│   └── ...
+├── TRACK 2
+│   └── ...
+└── ARRANGE
+```
 
-**Main editor** — the active screen (PHRASE, CHAIN, SONG, etc.).
+### The three sequencer pages
 
-**Navigation map** — a miniature 5×5 grid in the top-right showing your position in the screen layout.
+- **PATTERN** — edit the individual steps of a pattern.
+- **BANKS** — the live pattern library/performance page. It selects which pattern each track plays.
+- **ARRANGE** — build a linear song from Banks patterns and scenes.
 
-**Status line** — brief messages (e.g., `SAVED`, `RESAMPLED TO INST 0C`) that auto-dismiss after a few seconds.
+**BANKS drives playback.** ARRANGE is the place to build the larger, linear arrangement after the reusable
+patterns have been created.
 
-Some screens (SAMPLE EDITOR, EQ EDITOR, THEME EDITOR) open as full-screen overlays that temporarily replace the main layout.
+### Compact MAP
 
-> [!TIP]
-> If you're on a low-power device and notice audio hiccups, switch the visualizer to **FLAT** — it disables the real-time waveform rendering and frees up CPU for the audio engine.
+The current page is shown in the compact MAP as a light `#A0A0A0` block with dark text. Other destinations
+are shown as dark blocks. The MAP is visible on the sequencer pages rather than occupying the old large
+navigation panel.
+
+### Matrix geometry
+
+ARRANGE, BANKS and PATTERN share the same matrix coordinate system. Empty matrix cells use small markers;
+the active handheld cursor is a larger **41-pixel** cursor with **3-pixel corner flags**.
 
 ---
 
 ## 4. Navigation
 
-All screens are arranged in a **5×5 grid**. Navigate by holding **R** and pressing the D-pad.
+### Main horizontal navigation
 
-```
-     Col 0      Col 1      Col 2      Col 3      Col 4
-     ─────      ─────      ─────      ─────      ─────
-Row 0  ---        ---       SCALE    INST POOL    ---
-Row 1  PROJ       PROJ      GROOVE     MODS       ---
-Row 2  SONG      CHAIN     PHRASE     INST       TABLE
-Row 3                       MIXER
-Row 4                      EFFECTS
+Hold **R** and press LEFT/RIGHT to cycle through the five main pages:
+
+```text
+ARRANGE  →  BANKS  →  PATTERN  →  INSTRUMENT  →  MODS
 ```
 
-> **SCALE** and **INST POOL** (Row 0) only appear in column 2 and 3 respectively.  
-> **GROOVE** and **MODS** (Row 1) only appear in column 2 and 3 respectively.  
-> **MIXER** and **EFFECTS** (rows 3–4) only appear in the column you are currently on — move left/right first, then navigate up/down.
+### Vertical/context navigation
 
-| Combo | Action |
-|---|---|
-| R + RIGHT / LEFT | Move left / right along Row 2 |
-| R + UP | Move to the screen above in the current column |
-| R + DOWN | Move to the screen below in the current column |
+R+UP/DOWN moves between the contextual screens associated with the current main page. The visible
+navigation hierarchy includes:
 
-The navigation map always shows where you are.
+```text
+PATTERN
+  ↕ SCALE
 
-**Popup screens** — not in the grid, opened contextually:
+INSTRUMENT
+  ↕ INST.POOL
 
-| Screen | How to open |
-|---|---|
-| SAMPLE EDITOR | INSTRUMENT screen → **TYPE** row → cursor on **EDIT >** → **A** |
-| EQ EDITOR | INSTRUMENT / INST.POOL / MIXER / EFFECTS → cursor on EQ cell → **A**. Close with **B**. |
-| SETTINGS | PROJECT screen → cursor on SETTINGS row → A |
-| THEME EDITOR | SETTINGS screen → cursor on THEME row → A |
+any main page
+  ↓ MIXER
+  ↓ EFFECTS
+```
 
-> [!NOTE]
-> **A opens, B goes back.** On cells that lead to another screen — the **EQ** cell and the **NAME**
-> cell on PROJECT/INSTRUMENT — a quick **tap of A** opens the editor, while **holding A + a direction**
-> still edits the value on that same cell (e.g. the EQ slot number). The open fires when you *release* A,
-> so a held A never opens by accident. Inside the EQ EDITOR, **B closes** it and **B + LEFT/RIGHT** still
-> cycles the EQ preset slot.
+The compact MAP provides a persistent visual indication of the current location.
+
+> **Note:** Older source terminology such as SONG, CHAIN, PHRASE and TABLE remains in the underlying
+> PocketTracker compatibility layer, but the current handheld sequencer workflow uses ARRANGE, BANKS and
+> PATTERN.
 
 ---
 
 ## 5. Controls Reference
 
-### 5.1 Button Layout
-
-#### Physical gamepad (Android handhelds)
+### 5.1 Physical controls
 
 | Physical button | Function |
 |---|---|
 | D-pad | Move cursor |
-| A | Confirm / Insert |
-| B | Cancel / Delete |
-| L | L modifier |
-| R | R modifier |
-| SELECT | Show help for the cell under the cursor; file-management modifier in the file browser; cancels the keyboard overlay |
+| A | Edit/confirm; context-dependent action |
+| B | Cancel/delete or context-dependent action |
+| L1 | Parameter/navigation modifier |
+| R1 | Main-screen/navigation modifier |
+| SELECT | Context help |
 | START | Play / Stop |
 
-#### Keyboard (Bluetooth keyboard or testing on PC)
+### 5.2 Pattern parameter strip
 
-| Key | Function |
+The handheld PATTERN footer is intentionally compact:
+
+```text
+N   I   V   P   S   C   A   ALL^
+```
+
+| Label | Parameter |
 |---|---|
-| W / S / A / D or Arrow keys | D-pad |
-| K or Enter | A button |
-| J or Escape | B button |
-| U | L button |
-| I | R button |
-| Left Shift | SELECT |
-| Spacebar | START |
+| N | Note |
+| I | Instrument |
+| V | Volume |
+| P | Pan |
+| S | Slide |
+| C | Chance / Condition |
+| A | Arpeggiator |
+| ALL^ | Full grouped FX picker |
 
-Both keyboard and gamepad work simultaneously.
+The parameter name/value currently being edited is shown above the footer.
 
----
+### 5.3 General value editing
 
-### 5.2 Basic Actions
+The existing SPRITESTEP value-editing convention remains:
 
 | Input | Action |
 |---|---|
-| D-pad | Move cursor |
-| A | Insert value (on an empty cell, inserts the last-used value) |
-| B | Delete value / cancel |
-| SELECT | Show help for the cell under the cursor; file-management modifier in the file browser; cancels the keyboard overlay |
+| A + RIGHT | Fine increase |
+| A + LEFT | Fine decrease |
+| A + UP | Coarse increase |
+| A + DOWN | Coarse decrease |
+| A + B | Delete/reset the selected value |
+
+For note values, scale-aware editing uses the Project Scale.
+
+On PATTERN, **L1** is also used to select the footer parameter, and **R1** moves between the main
+handheld sequencer pages. The footer therefore acts as a compact parameter selector rather than requiring
+separate pages for each common step parameter.
+
+### 5.4 Pattern cut/paste
+
+Single-step editing continues to support the step clipboard. A complete step can include note,
+instrument, volume, native FX, condition, wait and trigless metadata.
+
+### 5.5 Range Edit
+
+SPRITESTEP now includes an FMS-inspired horizontal **Range Edit** mode.
+
+**Enter Range Edit**
+
+- `L + B` on PATTERN enters Range Edit at the current step.
+- The current step becomes the fixed anchor.
+- LEFT/RIGHT moves the active range edge.
+- The inclusive span between the anchor and active edge is the selected range.
+- The range is horizontal within the current track/pattern.
+- UP/DOWN exits Range Edit and changes track.
+
+**Edit the range**
+
+Hold **A** with a direction to apply the currently selected PATTERN footer parameter to every step in the
+range:
+
+```text
+A + LEFT/RIGHT/UP/DOWN
+```
+
+The selected parameter's normal editing rules are used for each step. In particular, note changes remain
+Project Scale-aware and normal value limits/wrapping are preserved.
+
+**Range actions**
+
+| Input | Action |
+|---|---|
+| L+B | Enter Range Edit |
+| LEFT/RIGHT | Move the active range edge |
+| B | Cancel Range Edit |
+| A + direction | Apply the selected parameter to the whole range |
+| A+B | Apply the selected parameter's delete/reset action to the whole range |
+| L+A | Copy the selected range; this is the Pattern range clipboard action |
+| L+A outside Range Edit | Paste the copied range at the current step |
+
+`L1 + A` remains the normal Pattern range-copy action; the SELECT+A randomizer does not replace it.
+
+Range copy includes the complete step data: note, instrument, volume, FX, condition, wait and trigless.
+Paste is clipped at the end of the pattern.
+
+`ALL^` remains an FX picker and is not treated as a numeric range-edit parameter.
+
+### 5.6 Pattern rate and length
+
+Each track has a **step-duration multiplier** from 1–8:
+
+```text
+1 = 1/16
+2 = 2/16
+3 = 3/16
+...
+8 = 8/16
+```
+
+The multiplier changes the duration of each step; it is not an independent pattern length.
+
+Patterns contain 1–16 steps. The END triangle marks the final active step. Steps beyond the pattern length
+are darkened.
+
+Hold **L1+R1** to highlight the track multiplier and pattern END indicator.
+
+### 5.7 Pattern direction and shuffle
+
+The PATTERN header displays the selected track's direction and shuffle.
+
+Direction modes:
+
+- `>` — Forward
+- `<>` — Ping-pong
+- `<` — Reverse
+- `?` — Random
+
+Use the Pattern header controls to select Direction or Shuffle, then edit with the A+direction controls.
+Shuffle delays every other step by an amount up to half a step.
+
+### 5.8 Wait and Trigless
+
+Each pattern step can carry additional metadata:
+
+- **Wait** — a trigger delay measured in PPQN units.
+  - `00` = normal
+  - `03` = half a step
+  - `06` = one full step
+- **Trigless** — changes parameter/FX state without retriggering the note/voice.
+
+Wait changes the trigger frame but does not create a separate clock or alter the pattern's underlying grid.
+
+### 5.9 Playback
+
+| Input | Action |
+|---|---|
 | START | Play / Stop |
-
-> [!TIP]
-> Pressing **A** on an empty note cell re-inserts the last note you placed — same pitch, same instrument. This is the fastest way to place a drum pattern: move to the row, press A, move on.
-
-#### Help on SELECT
-
-Tap **SELECT** for help on the cell the cursor is on. **SETTINGS → HELP** chooses what you get:
-
-- **SHORT** — the visualizer strip at the top of the screen becomes three lines describing the cell. Tap **SELECT** again, or press any other button, to put it away. On the sample editor it appears in place of the waveform. The file browser has no room for it, so there it shows nothing.
-- **FULL** — a help screen over everything: the same text, and a longer description where one has been written. Any button closes it, and that press does nothing else.
-- **OFF** — **SELECT** shows no help.
-
-The strip uses the theme's **VIZ BG** and **VIZ WAVE** colours.
+| R + LEFT/RIGHT | Cycle main pages |
+| R + UP/DOWN | Move vertically through page context |
+| L1 + LEFT/RIGHT on BANKS | Change bank |
+| L1 + R1 on PATTERN | Highlight rate/length controls |
 
 ---
 
-### 5.3 Value Editing — A + D-pad
+## 6. SPRITESTEP Sequencer
 
-Hold **A** and press a direction to edit the value under the cursor:
+SPRITESTEP's handheld sequencer uses three complementary views.
 
-| Combo | Step |
-|---|---|
-| A + RIGHT | +1 (small step) |
-| A + LEFT | −1 (small step) |
-| A + UP | +16 / +1 octave (large step) |
-| A + DOWN | −16 / −1 octave (large step) |
-| A + B | Delete / clear value |
+### 6.1 PATTERN
 
-- **Key repeat is active:** hold the combo for ~400 ms and it starts repeating at ~10/s.
-- For **note values**, large step = ±12 semitones (one octave).
-- For **hex byte values**, large step = ±0x10.
-- Under a scale, a note's small step is the next note **of that scale** rather than the next semitone — see [section 14](#14-scale-screen). The large step stays a full octave.
-- Where a cell is a short list rather than a number — theme presets, scales, SLICE, SOURCE, an on/off flag, the instrument TYPE — there is no large step, and **A + UP/DOWN walk the list exactly as A + RIGHT/LEFT do**.
+PATTERN is the detailed step editor. There are eight tracks and up to sixteen visible steps.
 
----
+Each track has:
 
-### 5.4 Context Navigation — B + D-pad
+- a step-duration multiplier
+- a pattern length
+- direction
+- shuffle
+- up to 16 step positions
+- note/instrument/value/FX data
+- condition metadata
+- Wait metadata
+- Trigless metadata
 
-Hold **B** and press LEFT/RIGHT to switch between items of the same type without leaving the screen:
+The Pattern page follows the **actual Bank pattern currently playing** while transport is running. When
+stopped, it follows the selected bank/pattern.
 
-| Screen | B + LEFT / RIGHT |
-|---|---|
-| CHAIN | Previous / next chain (00–FF) |
-| PHRASE | Previous / next phrase (00–FF) |
-| INSTRUMENT | Previous / next instrument (00–7F) |
-| TABLE | Previous / next table (00–7F) |
-| GROOVE | Previous / next groove (00–7F) |
+### 6.2 BANKS
 
-**`SETTINGS → NAV` is `SONG` by default**, and B + D-pad on CHAIN and PHRASE walks the arrangement instead
-of the pools. The cursor becomes a song cell, and the chain or phrase you are looking at is whichever
-one that cell holds — the CHAIN and PHRASE headers show it (`CHAIN 20  S01 T3`).
+BANKS is the live performance/pattern-library page.
 
-| Screen | B + LEFT / RIGHT | B + UP / DOWN |
-|---|---|---|
-| CHAIN | Nearest filled cell left / right in the same song row | Nearest filled cell up / down the same track, skipping empty rows |
-| PHRASE | Nearest track left / right whose chain also has a phrase at this chain row | Previous / next filled row of the chain you are in |
+There are:
 
-Nothing to that side means the press does nothing. On PHRASE, plain UP/DOWN off step `00` or `0F` now
-moves to the previous or next filled row of the chain instead of wrapping inside the same phrase, and
-**R+RIGHT does nothing when the cell under the cursor is empty** — you reach a chain by putting it in
-the song first.
+- **8 banks**
+- **16 patterns per bank**
+- **8 tracks**
 
-> [!IMPORTANT]
-> Under `NAV = SONG` a chain or phrase that is not placed in the arrangement cannot be opened at all.
-> Nothing is lost — set NAV back to `POOL` and every slot is reachable again.
+Each track therefore has 128 pattern slots.
 
-The other screens are unchanged: SONG still pages by 16, and INSTRUMENT, MODS, TABLE, GROOVE and
-INST.POOL still walk their pools.
+The `?` column is the randomizer. The old X/clear column is not part of the current handheld UI.
 
----
+A Bank cell identifies a pattern by bank and pattern number. Occupied patterns use the matrix's light
+inverted treatment; empty patterns remain dark.
 
-### 5.5 Screen Navigation — R + D-pad
+### 6.3 ARRANGE
 
-Hold **R** and press a direction to move in the screen grid (see §4).
+ARRANGE is the linear song structure. Each scene contains one pattern reference per track.
+
+The effective scene duration is based on the longest active pattern duration. Shorter patterns repeat until
+the scene ends. Consecutive uses of the same pattern preserve its runtime repetition state; a new pattern
+starts a new repetition run.
+
+### 6.4 Project Scale
+
+The Project Scale is used by Pattern note insertion/editing and by Bank randomization.
+
+Generated notes are snapped to the active scale mask and key rather than being chosen from all twelve
+chromatic notes.
 
 ---
 
-### 5.6 Copy / Paste
+## 7. ARRANGE Screen
 
-Works on PHRASE, CHAIN, SONG, and TABLE screens.
+ARRANGE is the linear arrangement editor.
+
+Each row represents a scene/page and each track column contains a two-digit pattern reference:
+
+```text
+bank nibble + pattern nibble
+```
+
+For example, `23` means bank `2`, pattern `3`.
+
+The arrangement runtime is separate from the live BANKS performance page. Use BANKS to audition and
+perform reusable patterns; use ARRANGE to construct the complete linear project.
+
+### Scene timing
+
+A scene ends when its longest active pattern has completed its effective duration. Shorter patterns repeat
+to fill that scene.
+
+Conditional triggers such as `1 of 3` are evaluated on the relevant repetition of a pattern. When the
+same pattern continues across consecutive scenes, its runtime repetition state is preserved; selecting a
+new pattern starts a new run.
+
+---
+
+## 8. BANKS Screen
+
+BANKS is the primary live pattern-selection page.
+
+### Layout
+
+The page has eight track rows and sixteen pattern columns, plus the bank selector.
+
+- The D-pad remains inside the 8×16 pattern matrix.
+- The bottom bank selector is not entered with the D-pad.
+- **L1+LEFT/RIGHT** changes bank.
+- The `?` column randomizes patterns.
+- The old X/clear column is removed from the handheld UI.
+
+### Single-track and all-track actions
+
+The modifiers distinguish a single track from the complete pattern column:
 
 | Input | Action |
 |---|---|
-| L + B | Enter selection mode (tap again to cycle: CELL → ROW → SCREEN) |
-| B (in selection) | Copy selection, exit selection mode |
-| L + A (in selection) | Cut (copy + clear), exit selection mode |
-| L + A (outside selection) | Paste clipboard at cursor |
-| A + B (in selection) | Delete selection (no clipboard), exit selection mode |
-| L + B + A | Deep-clone the chain or phrase under the cursor into the next free slot |
-| L + R | Leave selection mode (nothing copied) |
+| B + LEFT on `?` | Randomize the selected track |
+| A + LEFT on `?` | Randomize all tracks |
+| B + LEFT on a pattern | Cue that pattern on the selected track |
+| A + LEFT on a pattern | Cue that pattern across all eight tracks |
+| A held | Show the whole-column cursor |
+| A+B | Cut the currently playing pattern to the Pattern clipboard |
 
-**Selection increment:** In selection mode, **A + LEFT/RIGHT** increments or decrements all selected values simultaneously.
+The all-column cursor is an editing/performance modifier; simply hovering over a cell does **not** make
+an A0 filled box appear.
 
-**Clearing the clipboard:** the copy buffer deliberately survives leaving a selection — you can select
-again by accident without losing what you copied. Press **L + R** when you are *not* selecting to clear
-it, which is also how you dismiss the clipboard readout in the top strip.
+### Cue behavior
 
-**L + R** also restores muted and soloed tracks (§5.7). It undoes one thing per press, most recent
-first: if you muted a channel after making a selection, the first press brings the channel back and
-the second clears the selection — and the other way round if the selection came last.
+A cue is a runtime performance operation. It is not serialized into the project.
 
-**Selection modes:**
-- **CELL** — single cell under cursor
-- **ROW** — full row (all columns)
-- **SCREEN** — all rows visible
+Pending cue cells blink on a **500 ms cycle** while waiting for the next valid pattern boundary. Once a
+pattern actually starts, its cell becomes the solid playing-pattern indicator.
 
-> [!TIP]
-> Use **SCREEN** selection mode to duplicate an entire phrase or chain quickly: enter SCREEN mode → B to copy → navigate to an empty phrase/chain → L+A to paste.
+All-track cues launch the corresponding selected pattern column across the eight tracks at their proper
+pattern boundaries rather than merely changing the currently selected track.
 
----
+### Randomization
 
-### 5.7 Mute & Solo
+Bank randomization first chooses which steps will contain notes, then generates the notes. Empty steps
+remain empty.
 
-Works on the SONG and MIXER screens, while playing or stopped.
+Generated notes follow the Project Scale.
 
-| Input | Action |
-|---|---|
-| R + B | Mute / unmute the channel under the cursor |
-| R + A | Solo / unsolo it |
-| R + B or R + A over a selection | Applies to every track the selection covers |
-| L + R | Restore full playback — every track and both send returns |
+Instrument selection is track-consistent:
 
-The sound stops the instant you press, notes already ringing included.
+1. Prefer an instrument already used by that track's existing SPRITESTEP patterns.
+2. If the track has no existing instrument usage, choose the first configured instrument in the project.
+3. If the project has no configured instruments, fall back to instrument `0`.
 
-**Hold or latch.** Which button you let go of first decides what happens:
-
-- release **R** first — the change stays;
-- release **A** or **B** first — everything that chord did is undone.
-
-So the same chord gives you a momentary drop you can hold through a bar, and a mute you set and walk
-away from.
-
-Soloing is additive: solo a second track and both play. A track that is muted stays silent even when
-soloed.
-
-A track that is making no sound draws its numbers dimmed — its chain IDs on SONG, its fader value on
-MIXER — so soloing one track dims the other seven.
-
-**The send returns.** On MIXER the chord also works on the REV and DEL strips. Muting one drops that
-effect out of the mix; soloing one leaves you with just the reverb or just the delay, while the
-tracks go on playing and feeding it.
+All generated notes in that randomized pattern use the selected instrument for that track.
 
 ---
 
-### 5.8 Playback Controls
+## 9. PATTERN Screen
 
-| Input | Action |
-|---|---|
-| START | Play / Stop (context-aware) |
-| START on SONG | Play full song from top |
-| START on CHAIN | Play current chain |
-| START on PHRASE | Play current phrase (loops) |
-| START on INSTRUMENT | Preview current instrument |
-| START on SAMPLE EDITOR | Preview edited sample |
-| START on SONG in LIVE mode | Queue the chain under the cursor ([LIVE Mode](#live-mode)) |
+PATTERN is the detailed editor for the pattern selected in BANKS or the pattern currently playing.
 
----
+### Matrix
 
-## 6. Song Structure
+- 8 tracks
+- up to 16 visible steps
+- 1–8 step-duration multiplier
+- 1–16 pattern length
+- END triangle
+- red outline active cursor (no filled/grey cursor cell)
+- 9px inactive/empty markers
 
-SPRITESTEP organizes music in a four-level hierarchy:
+A step can contain a note or parameter-only metadata such as Condition, Wait or Trigless.
 
-```
-PROJECT
-  └── SONG  (8 tracks, each is a column of chain IDs)
-        └── CHAIN  (up to 16 phrase references + per-row transpose)
-              └── PHRASE  (16 steps)
-                    └── STEP  (Note + Instrument + Volume + 3 FX slots)
-```
+### Notes and Project Scale
 
-- A **STEP** is a single note event with optional effects.
-- A **PHRASE** is a short pattern of 16 steps — like a bar of music.
-- A **CHAIN** is a sequence of up to 16 phrases. Each phrase slot can have a **transpose** value to shift pitch without duplicating the phrase.
-- The **SONG** arranges chains across 8 tracks. All 8 start together on the row you press START from, and each then moves down its own column as its own chains end.
+New note insertion and note editing use the Project Scale. An empty step can be populated with a
+scale-snapped note rather than an arbitrary chromatic note.
 
-All values (chain IDs, phrase IDs, instrument IDs, etc.) are hexadecimal, ranging from `00` to `FF`.
+### Footer and FX
 
-> [!NOTE]
-> All values in SPRITESTEP are **hexadecimal** (base-16). Decimal 16 = hex `10`, decimal 255 = hex `FF`. The appendix at the end has a [conversion table](#hex--note-quick-reference).
+The compact footer is:
 
----
-
-## 7. SONG Screen
-
-The SONG screen arranges chains across 8 tracks. Each column is a track (1–8), each row is a song position.
-
-```
-     1    2    3    4    5    6    7    8
-00   04   --   08   --   --   01   --   --
-01   04   --   08   --   --   01   --   --
-02   05   --   09   --   --   02   --   --
+```text
+N  I  V  P  S  C  A  ALL^
 ```
 
-`--` means the track is silent at that position. Numbers are chain IDs (hex).
+`ALL^` opens the grouped PocketTracker-style FX picker. It is deliberately a **secondary FX menu**: the
+permanent footer already exposes Note, Instrument, Volume, Pan, Slide, Chance and Arpeggiator, while ALL^
+provides the additional per-step effects.
 
-During playback a `>` appears to the left of the cell each track is on. The eight move independently, so they are rarely all on the same row.
+The current Pattern ALL^ menu contains:
 
-A `>` also marks the playing row on the CHAIN and PHRASE screens. It is only drawn where the screen is showing something that is actually playing — audition a phrase on its own and the chain and song screens stay unmarked, because that phrase need not belong to any chain.
-
-### Controls
-
-| Input | Action |
-|---|---|
-| D-pad | Move cursor |
-| A | Insert last-used chain ID |
-| A + LEFT/RIGHT | Increment / decrement chain ID |
-| A + UP/DOWN | Increment / decrement by 16 |
-| A + B | Delete (set to --) |
-| B + UP/DOWN | Page up / down (jump 16 rows) |
-| B + LEFT/RIGHT | Switch between SONG and LIVE mode |
-| START | Play song from current row |
-
-> [!TIP]
-> You can start playback from any row — not just the beginning. Move the cursor to the row where you want playback to start, then press **START**. Useful for jumping to a specific section while mixing.
-
-### LIVE Mode
-
-Press **B + LEFT** or **B + RIGHT** on the SONG screen to switch between the two transport modes. The title changes from `SONG:` to `LIVE:`.
-
-In LIVE mode the song grid is a scene launcher. Each channel plays one chain and repeats it until you queue something else, and START no longer starts or stops the transport — it queues.
-
-| Input | Action |
-|---|---|
-| START | Queue the chain under the cursor on that channel |
-| START again on the same cell | Start it at the next bar instead of waiting for the chain |
-| L + START | Queue the whole cursor row — every channel at once |
-| R + START | Queue the channel under the cursor to fall silent |
-| B + LEFT/RIGHT | Back to SONG mode |
-
-A queued launch blinks a `>` on the row it will jump to, while the solid `>` stays where the channel is now. A queued stop blinks a `_` in place of the channel's marker. Slow blink means it is waiting for the chain to end; fast blink means the next bar.
-
-A blank cell in a queued row silences that channel, so a row sounds the way it looks. With the transport stopped, START and L+START begin playing immediately.
-
-Switching modes never jumps or silences anything: each channel keeps its place, and starts repeating — or resumes walking down its column — from its next chain boundary. LIVE mode lasts for the session and is not saved with the project.
-
----
-
-## 8. CHAIN Screen
-
-A chain is a sequence of up to 16 phrase references. Each slot has:
-- **PH** — phrase ID (`00`–`FF`) or `--` (empty)
-- **TSP** — transpose in semitones (`00` = no transpose; values above `7F` are negative)
-
-```
-     PH   TSP
-00   04   00
-01   04   00
-02   05   0C   ← +12 semitones (one octave up)
-03   05   00
+```text
+LAT  ARC  OFF  RPT  PBN  PVB  PVX  PIT  SLI
+BCK  EQN  CUT  RES  LPF  HPF  BPF  DRV  CRU
+FIN  TSX  REV  DEL  LPO
 ```
 
-When played, the chain loops from slot 00 after the last filled slot.
+In particular, **REV (Reverb Send)** and **DEL (Delay Send)** belong in ALL^; they are not permanent
+footer parameters. Commands that are destructive, playback/meta-oriented, or already represented by a
+dedicated footer parameter are intentionally omitted from this Pattern-specific list. The full effect
+reference in §22 still documents the complete native effect set.
 
-### Controls
+Press **B** to open or close the persistent ALL^ picker. While it is open, use the D-pad to choose an
+effect. Press **A** to edit the selected effect's value; A+direction uses the normal fine/coarse value
+editing rules. This makes ALL^ a two-stage operation: B chooses the FX menu, then A edits its value.
 
-| Input | Action |
-|---|---|
-| D-pad | Move cursor |
-| A | Insert last-used value |
-| A + LEFT/RIGHT | Increment / decrement |
-| A + UP/DOWN | ±16 (PH) or ±12 semitones (TSP) |
-| A + B | Delete slot |
-| B + LEFT/RIGHT | Switch to previous / next chain |
-| START | Play current chain |
+### Direction and Shuffle
 
-> [!TIP]
-> Use **TSP** to play the same phrase at multiple pitches without copying it. One phrase can become a verse, chorus, and bridge by giving it different TSP values across chain slots — `07` = +7 semitones (a perfect fifth up), `0C` = +12 (one octave up).
+The header displays the selected track's Direction and Shuffle. Direction can be:
 
----
+- Forward
+- Ping-pong
+- Reverse
+- Random
 
-## 9. PHRASE Screen
+Shuffle applies the documented every-other-step timing offset, up to half a step.
 
-The phrase editor has 16 rows (steps 00–0F) and 5 columns:
+### Conditions
 
-```
-     N    V    I    FX1      FX2      FX3
-00   C-4  80   03   ---  00  ---  00  ---  00
-01   ---  --   --   ---  00  ---  00  ---  00
-02   E-4  80   03   ARP  47  ---  00  ---  00
-```
+Conditions are stored per step. A condition such as `1/3` means the step is active on the first
+relevant occurrence out of a three-repetition cycle.
 
-| Column | Meaning |
-|---|---|
-| N | Note (`C-4`, `F#3`, etc.). `---` = no note. |
-| V | Volume (`00`–`FF`). Always set — `FF` = full, applied on top of instrument VOL. |
-| I | Instrument ID (`00`–`7F`). Always set — no empty state. |
-| FX1/FX2/FX3 | Effect type + value (e.g., `RPT 03`, `ARP 47`) |
+### Wait and Trigless
 
-Notes are written as pitch + octave: `C-4`, `C#4`, `D-4`, … `G-9`. Range is **C-0 to G-9**. Middle C = `C-4` (MIDI note 60).
+Wait and Trigless are per-step metadata and remain separate from note data.
 
-### Controls
+- Wait delays the trigger frame.
+- Trigless permits FX/parameter state changes without a note retrigger.
+- Neither creates an independent timing clock.
 
-| Input | Action |
-|---|---|
-| D-pad | Move cursor |
-| A | Insert last-used note / value |
-| A + LEFT/RIGHT | +1 / −1 semitone (note — or the next note of the scale, see [section 14](#14-scale-screen)), +1 / −1 (other values) |
-| A + UP/DOWN | ±1 octave (note), ±16 (other values) |
-| A + B | Delete value at cursor |
-| B + LEFT/RIGHT | Switch to previous / next phrase |
-| START | Play current phrase (loops) |
+### Pattern playhead
 
-### FX columns
+While the transport is running, the Pattern page shows the actual scheduled playhead for the pattern
+being played. The playhead is derived from scheduled audio-frame timing rather than simply from the
+scheduler's future lookahead position.
 
-Each FX slot has two parts: **type** (3-letter code) and **value** (2-digit hex). Use A+LEFT/RIGHT on the type to step through the available effects one at a time, or A+UP/DOWN to open the effect picker. Effects are listed in §22.
+### Pattern parameter randomization
 
-The picker groups the commands by what they act on — **SEQUENCE**, **INSTRUMENT** and **GLOBAL** — and keeps one group open at a time. A closed group shows `→` after its name, the open one `↓`. Move past the last row of a group and the next one opens; every group starts with `---`, which clears the slot. Keep holding A while you look — the description above the grid follows the cursor — and release A on the command you want.
+**SELECT + A** is a single-shot randomize command for the currently selected Pattern footer parameter.
+It operates on the pattern actually being edited/played, not on a fixed bank or pattern 0.
 
-> [!WARNING]
-> Some effects (**ARP**, **RPT**, **PBN**, **PVB**, **PVX**) **persist across steps that have no note** — they keep running on empty rows. They are cancelled by: a new note on the same track, any effect in the same FX column, setting the effect to `00`, or **KIL**.
+- With no Range Edit active, it randomizes the parameter at the current step.
+- With Range Edit active, it randomizes that parameter independently across every selected step.
+- Each selected step receives its own random value rather than one value copied across the range.
+- Empty steps may receive a valid scale-snapped note when randomizing a parameter that needs a note-bearing step.
+- Note randomization follows the current Project Scale.
+- Instrument randomization uses configured instruments rather than arbitrary unused slots.
+- Volume randomization avoids generating silent `00` values.
+- FX parameters use effect-appropriate ranges rather than treating every effect as an unrestricted byte.
 
-The mixer faders written from a phrase (**VTR**, **VMV**) persist differently: they are not attached to a
-note at all, so nothing cancels them but the next `VTR`/`VMV` — and stopping playback, which puts the
-faders back to the values on the MIXER screen.
+For **ALL^**, SELECT+A randomizes the currently selected ALL^ effect value.
 
-**AUS** and **AUF** are the only effects the grid can draw **dimmed**, in the colour of an empty cell.
-That means the pair did not come out: the fade will not play, and §21 lists the reasons. A pair that
-works stays lit even when its two halves are in different phrases of the same chain.
-
----
+This is intentionally separate from manual editing: **A + D-pad** remains the precise edit operation,
+while **SELECT + A** performs the random operation once.
 
 ## 10. INSTRUMENT Screen
 
@@ -2440,6 +2472,24 @@ exports and sample-editor saves keep their own folders.
 
 ## Appendix: Controls Cheat Sheet
 
+### PATTERN / BANKS
+
+| Input | Action |
+|---|---|
+| L1 + LEFT/RIGHT | Select the previous/next Pattern footer parameter |
+| A + LEFT/RIGHT | Fine-edit the selected Pattern parameter |
+| A + UP/DOWN | Coarse-edit the selected Pattern parameter |
+| B on ALL^ | Open/close the Pattern ALL^ FX picker |
+| A in ALL^ | Edit the selected ALL^ FX value |
+| SELECT + A | Randomize the selected Pattern parameter; randomize the whole active range when Range Edit is active |
+| L + B | Enter/cancel Pattern Range Edit |
+| LEFT/RIGHT in Range Edit | Move the active range edge |
+| L + A in Range Edit | Copy the selected range |
+| L + A outside Range Edit | Paste the copied range |
+| B in Range Edit | Cancel Range Edit |
+| L1 + R1 | Highlight Pattern rate/length controls |
+| R1 + LEFT/RIGHT | Switch main handheld pages |
+
 *Print this page and keep it handy.*
 
 ---
@@ -2719,8 +2769,8 @@ Open with **A** on an EQ cell.
 | VOL | Volume | `XX` | Immediate volume at this tick |
 | PAN | Pan | `XX` | Per-note pan (00=L 80=center FF=R); next note reverts |
 | BCK | Direction | `0X` | Sampler: 00=reverse 01=forward; flip live to scratch |
-| REV | Reverb Send | `XX` | Per-note reverb send level |
-| DEL | Delay Send | `XX` | Per-note delay send level |
+| REV | Reverb Send | `XX` | Per-note reverb send level; Pattern Page: **ALL^** |
+| DEL | Delay Send | `XX` | Per-note delay send level; Pattern Page: **ALL^** |
 | EQN | EQ (note) | `XX` | Per-note EQ preset slot (00–7F) |
 | EQM | EQ (mixer) | `XX` | Master EQ preset slot; holds till next EQM, resets on stop |
 | VTR | Track Fader | `XX` | This track's MIXER fader; replaces it, **persists**, restored on stop |
