@@ -2366,7 +2366,19 @@ void InputDispatcher::seq_a_action() {
         return;
     }
     if (s_.currentScreen == ScreenType::BANKS) {
-        BanksViewState bs; bs.bank=s_.seqBank; bs.selectedPatterns=s_.seqSelectedPatterns; bs.cursorTrack=s_.seqBanksCursorTrack; bs.cursorColumn=s_.seqBanksCursorColumn; bs.bankSelector=s_.seqBanksBankSelector; bs.allCursor=s_.seqBanksAllCursor;
+        BanksViewState bs;
+        bs.bank=s_.seqBank;
+        bs.selectedPatterns=s_.seqSelectedPatterns;
+        bs.cursorTrack=s_.seqBanksCursorTrack;
+        bs.cursorColumn=s_.seqBanksCursorColumn;
+        bs.bankSelector=s_.seqBanksBankSelector;
+        bs.allCursor=s_.seqBanksAllCursor;
+        bs.isPlaying = s_.isPlaying;
+        bs.randomSeed = bankRandomSeed_;
+        for (int t = 0; t < songcore::SEQUENCER_TRACKS; ++t) {
+            bs.playingBanks[static_cast<size_t>(t)] = pattern_bank_for_track(s_, t);
+            bs.playingPatterns[static_cast<size_t>(t)] = pattern_index_for_track(s_, t);
+        }
         populate_bank_random_instruments(bs, p);
         const auto r=banks_.activate_a(bs,p.sequencer); s_.seqBank=bs.bank; s_.seqSelectedPatterns=bs.selectedPatterns; s_.seqBanksCursorTrack=bs.cursorTrack; s_.seqBanksCursorColumn=bs.cursorColumn; s_.seqBanksBankSelector=bs.bankSelector; s_.seqBanksAllCursor=bs.allCursor;
         if (r.operation==BanksOperation::CUE_ALL_TRACKS_PATTERN_COLUMN) {
@@ -2378,7 +2390,10 @@ void InputDispatcher::seq_a_action() {
                 host_.cue_handheld_pattern(track, r.bank, r.pattern);
             }
         }
-        if (r.operation==BanksOperation::RANDOMIZE_ALL_SELECTED || r.operation==BanksOperation::CLEAR_ALL_SELECTED) mark_modified();
+        if (r.operation==BanksOperation::RANDOMIZE_ALL_SELECTED || r.operation==BanksOperation::CLEAR_ALL_SELECTED) {
+            if (r.operation == BanksOperation::RANDOMIZE_ALL_SELECTED) bankRandomSeed_ += 0x9E3779B9u;
+            mark_modified();
+        }
         return;
     }
     if (s_.currentScreen == ScreenType::ARRANGE) {
@@ -2419,14 +2434,29 @@ void InputDispatcher::seq_b_action() {
         return;
     }
     if (s_.currentScreen == ScreenType::BANKS) {
-        BanksViewState bs; bs.bank=s_.seqBank; bs.selectedPatterns=s_.seqSelectedPatterns; bs.cursorTrack=s_.seqBanksCursorTrack; bs.cursorColumn=s_.seqBanksCursorColumn; bs.bankSelector=s_.seqBanksBankSelector; bs.allCursor=s_.seqBanksAllCursor;
+        BanksViewState bs;
+        bs.bank=s_.seqBank;
+        bs.selectedPatterns=s_.seqSelectedPatterns;
+        bs.cursorTrack=s_.seqBanksCursorTrack;
+        bs.cursorColumn=s_.seqBanksCursorColumn;
+        bs.bankSelector=s_.seqBanksBankSelector;
+        bs.allCursor=s_.seqBanksAllCursor;
+        bs.isPlaying = s_.isPlaying;
+        bs.randomSeed = bankRandomSeed_;
+        for (int t = 0; t < songcore::SEQUENCER_TRACKS; ++t) {
+            bs.playingBanks[static_cast<size_t>(t)] = pattern_bank_for_track(s_, t);
+            bs.playingPatterns[static_cast<size_t>(t)] = pattern_index_for_track(s_, t);
+        }
         populate_bank_random_instruments(bs, p);
         const auto r=banks_.activate_b(bs,p.sequencer); s_.seqBank=bs.bank; s_.seqSelectedPatterns=bs.selectedPatterns; s_.seqBanksCursorTrack=bs.cursorTrack; s_.seqBanksCursorColumn=bs.cursorColumn; s_.seqBanksBankSelector=bs.bankSelector; s_.seqBanksAllCursor=bs.allCursor;
         if (r.operation==BanksOperation::CUE_TRACK_PATTERN) {
             s_.seqSelectedPatterns[static_cast<size_t>(r.track)] = r.pattern;
             host_.cue_handheld_pattern(r.track, r.bank, r.pattern);
         }
-        if (r.operation==BanksOperation::RANDOMIZE_TRACK_PATTERN || r.operation==BanksOperation::CLEAR_TRACK_PATTERN) mark_modified();
+        if (r.operation==BanksOperation::RANDOMIZE_TRACK_PATTERN || r.operation==BanksOperation::CLEAR_TRACK_PATTERN) {
+            if (r.operation == BanksOperation::RANDOMIZE_TRACK_PATTERN) bankRandomSeed_ += 0x9E3779B9u;
+            mark_modified();
+        }
         return;
     }
     if (s_.currentScreen == ScreenType::ARRANGE) {

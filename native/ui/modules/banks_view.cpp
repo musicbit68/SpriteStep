@@ -117,14 +117,23 @@ BanksActionResult BanksViewModule::activate_b(BanksViewState& state, sequencer::
     result.pattern = selected_pattern(state, state.cursorTrack);
 
     switch (state.cursorColumn) {
-        case -1:
+        case -1: {
             result.operation = BanksOperation::RANDOMIZE_TRACK_PATTERN;
-            // A changing seed is supplied by the app in production; a stable seed here keeps the
-            // module deterministic for callers/tests that don't maintain their own RNG.
+            // While BANKS is playing, randomize the pattern that is actually sounding on this
+            // track, not the UI cursor's remembered slot.  When stopped, the selected bank/slot
+            // remains the target.
+            if (state.isPlaying && state.playingBanks[static_cast<size_t>(result.track)] >= 0 &&
+                state.playingPatterns[static_cast<size_t>(result.track)] >= 0) {
+                result.bank = state.playingBanks[static_cast<size_t>(result.track)];
+                result.pattern = state.playingPatterns[static_cast<size_t>(result.track)];
+            }
+            const uint32_t seed = state.randomSeed ? state.randomSeed :
+                                  (0xBADC0DEu + static_cast<uint32_t>(result.track));
             sequencer::BanksController(project).randomize_track_pattern(
-                result.track, result.bank, result.pattern, 0xBADC0DEu + result.track,
+                result.track, result.bank, result.pattern, seed,
                 0x0FFFu, 0, state.randomInstruments[static_cast<size_t>(result.track)]);
             break;
+        }
         default:
             result.operation = BanksOperation::CUE_TRACK_PATTERN;
             break;
@@ -139,13 +148,23 @@ BanksActionResult BanksViewModule::activate_a(BanksViewState& state, sequencer::
     result.pattern = selected_pattern(state, state.cursorTrack);
 
     switch (state.cursorColumn) {
-        case -1:
+        case -1: {
             result.operation = BanksOperation::RANDOMIZE_ALL_SELECTED;
-            for (int track = 0; track < sequencer::TRACK_COUNT; ++track)
+            for (int track = 0; track < sequencer::TRACK_COUNT; ++track) {
+                int bank = state.bank;
+                int pattern = selected_pattern(state, track);
+                if (state.isPlaying && state.playingBanks[static_cast<size_t>(track)] >= 0 &&
+                    state.playingPatterns[static_cast<size_t>(track)] >= 0) {
+                    bank = state.playingBanks[static_cast<size_t>(track)];
+                    pattern = state.playingPatterns[static_cast<size_t>(track)];
+                }
+                const uint32_t base = state.randomSeed ? state.randomSeed : 0xA11CEu;
                 sequencer::BanksController(project).randomize_track_pattern(
-                    track, state.bank, selected_pattern(state, track), 0xA11CEu + track + state.bank * 17,
+                    track, bank, pattern, base + static_cast<uint32_t>(track * 0x9E3779B9u),
                     0x0FFFu, 0, state.randomInstruments[static_cast<size_t>(track)]);
+            }
             break;
+        }
         default:
             result.operation = BanksOperation::CUE_ALL_TRACKS_PATTERN_COLUMN;
             result.pattern = state.cursorColumn;

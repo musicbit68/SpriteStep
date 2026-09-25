@@ -19,17 +19,25 @@ struct BanksViewState {
     // One existing instrument chosen by the dispatcher for each track. The randomizer uses this
     // instrument for every generated note in that track's pattern. -1 means use the model fallback.
     std::array<int, sequencer::TRACK_COUNT> randomInstruments{};
+    std::array<int, sequencer::TRACK_COUNT> playingBanks{};
+    std::array<int, sequencer::TRACK_COUNT> playingPatterns{};
+    bool isPlaying = false;
+    uint32_t randomSeed = 0;
     std::array<sequencer::TrackCue, sequencer::TRACK_COUNT> cues{};
     std::array<TrackPlayhead, sequencer::TRACK_COUNT> playheads{};
     int blinkPhaseMs = 0;
-    bool isPlaying = false;
     int cursorTrack = 0;
     int cursorColumn = 0;
     bool bankSelector = false; // retained for compatibility; BANKS never enters the footer with the D-pad
     bool allCursor = false;     // A held: outline the entire selected pattern column
     Theme theme = theme_classic();
 
-    BanksViewState() { selectedPatterns.fill(0); randomInstruments.fill(-1); }
+    BanksViewState() {
+        selectedPatterns.fill(0);
+        randomInstruments.fill(-1);
+        playingBanks.fill(-1);
+        playingPatterns.fill(-1);
+    }
 };
 
 enum class BanksOperation {

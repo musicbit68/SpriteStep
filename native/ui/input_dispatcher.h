@@ -814,6 +814,10 @@ class InputDispatcher {
     void     run_selection_recency();
     unsigned selectionSig_ = 0;
 
+    // Session-local seed for BANKS randomization. It changes on every randomize gesture so repeated
+    // A+RIGHT presses cannot regenerate the same pattern.
+    uint32_t bankRandomSeed_ = 0x6D2B79F5u;
+
     SongEditorModule       song_{};
     ChainEditorModule      chain_{};
     PhraseEditorModule     phrase_{};
