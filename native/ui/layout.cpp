@@ -213,9 +213,12 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 const auto& projectScale = songcore::scale_at(p, 0);
                 ps.scaleMask = songcore::scale_mask(projectScale);
                 ps.scaleKey = p.scaleKey;
-                ps.selectedFxCode = s.seqPatternSelectedFxCode;
                 ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(ps.track)].direction);
                 ps.shuffle = p.sequencer.tracks[static_cast<size_t>(ps.track)].shuffle;
+                ps.selectedFxCode = s.seqPatternSelectedFxCode;
+                ps.project = &p;
+                ps.uiNowMs = s.uiNowMs;
+                ps.instrumentHexUntilMs = s.seqPatternInstrumentHexUntilMs;
                 ps.theme = t;
                 ps.isPlaying = s.isPlaying;
                 pattern_.draw(c, moduleX, EDITOR_Y, ps);
@@ -489,6 +492,7 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
     // LAST, over everything, including the right bar and the status line — an overlay is modal, and
     // its backdrop dims the whole frame. (The EQ editor and the theme editor join them here.)
     draw_fx_helper(c, s.fxHelper, t);
+    draw_sprite_picker(c, s.spritePicker, t);
     if (s.qwerty.isOpen) qwerty_.draw(c, s.qwerty, t);
     draw_confirm_dialog(c, s.confirm, t);
 }

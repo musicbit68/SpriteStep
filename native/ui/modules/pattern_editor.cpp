@@ -6,6 +6,7 @@
 #include "songcore/scales.h"
 #include "ui/helpers.h"
 #include "ui/matrix_geometry.h"
+#include "ui/sprite_renderer.h"
 
 namespace pt::ui {
 
@@ -39,7 +40,7 @@ int crush_parameter_value(const PhraseStep& step, PatternParameter p) {
 
 PatternParameter PatternEditorModule::footer_parameter(int index) {
     static constexpr PatternParameter params[] = {
-        PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
+        PatternParameter::INSTRUMENT, PatternParameter::NOTE, PatternParameter::VOLUME,
         PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
         PatternParameter::ARPEGGIATOR, PatternParameter::MORE
     };
@@ -350,13 +351,25 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                     c.draw_text(std::to_string(data.note.octave), sx + 10, rowY + 18,
                                 cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
                 } else {
-                    std::string value = pattern_parameter_text(*p, step, s.parameter);
-                    if (s.parameter == PatternParameter::MORE && s.selectedFxCode != songcore::FX_NONE) {
-                        const int fxSlot = fx_slot(p->steps[static_cast<size_t>(step)], s.selectedFxCode);
-                        value = fxSlot ? hex2(songcore::step_fx_value(p->steps[static_cast<size_t>(step)], fxSlot)) : "--";
+                    bool drewInstrumentSprite = false;
+                    if (s.parameter == PatternParameter::INSTRUMENT && s.project && data.instrument >= 0 &&
+                        data.instrument < static_cast<int>(s.project->instruments.size())) {
+                        const int spriteId = s.project->instruments[static_cast<size_t>(data.instrument)].spriteId;
+                        const bool revealHex = cursor && s.uiNowMs < s.instrumentHexUntilMs;
+                        if (spriteId >= 0 && !revealHex) {
+                            draw_sprite(c, spriteId, sx + 1, rowY + 1);
+                            drewInstrumentSprite = true;
+                        }
                     }
-                    c.draw_text(value, sx + 2, rowY + 9,
-                                cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                    if (!drewInstrumentSprite) {
+                        std::string value = pattern_parameter_text(*p, step, s.parameter);
+                        if (s.parameter == PatternParameter::MORE && s.selectedFxCode != songcore::FX_NONE) {
+                            const int fxSlot = fx_slot(p->steps[static_cast<size_t>(step)], s.selectedFxCode);
+                            value = fxSlot ? hex2(songcore::step_fx_value(p->steps[static_cast<size_t>(step)], fxSlot)) : "--";
+                        }
+                        c.draw_text(value, sx + 2, rowY + 9,
+                                    cursor ? cursor_cell_ink(t) : t.background, CHAR_SPACING, FONT_SCALE);
+                    }
                 }
             } else {
                 const int mx = sx + matrix::empty_offset();
@@ -429,7 +442,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     }
 
     static constexpr PatternParameter params[] = {
-        PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
+        PatternParameter::INSTRUMENT, PatternParameter::NOTE, PatternParameter::VOLUME,
         PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
         PatternParameter::ARPEGGIATOR, PatternParameter::MORE
     };

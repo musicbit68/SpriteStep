@@ -171,6 +171,7 @@ std::set<int> used_chain_ids(const Project& p) {
 
 void InputDispatcher::set_now(long long now_ms) {
     now_ms_ = now_ms;
+    s_.uiNowMs = now_ms;
 
     // Handheld transport is a readback: refresh it once per UI frame so Pattern, BANKS, and
     // ARRANGE all render the same sequencer clock position.  Songcore's PlaybackPosition uses
@@ -470,6 +471,11 @@ void InputDispatcher::on_l_b_released() {
 }
 
 void InputDispatcher::on_l_released() {
+    if (s_.spritePicker.open) {
+        if (s_.spritePickerIgnoreNextLRelease) s_.spritePickerIgnoreNextLRelease = false;
+        else s_.spritePicker.open = false;
+        return;
+    }
     s_.seqPatternRateLengthHighlight = false;
 }
 
@@ -624,6 +630,9 @@ CursorContext InputDispatcher::cursor_context() const {
             ps.scaleMask = songcore::scale_mask(songcore::scale_at(p, 0));
             ps.scaleKey = p.scaleKey;
             ps.selectedFxCode = s_.seqPatternSelectedFxCode;
+            ps.project = &p;
+            ps.uiNowMs = s_.uiNowMs;
+            ps.instrumentHexUntilMs = s_.seqPatternInstrumentHexUntilMs;
             ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(track)].direction);
             ps.shuffle = p.sequencer.tracks[static_cast<size_t>(track)].shuffle;
             return pattern_.cursor_context(ps);
@@ -1051,7 +1060,12 @@ void InputDispatcher::generic_input(InputAction (*fn)(const CursorContext&)) {
 
     const InputAction action = fn(cursor_context());
     if (action.type == ActionType::NONE) return;
-    if (apply_edit(action)) mark_modified();
+    const bool instrumentPatternEdit = s_.currentScreen == ScreenType::PATTERN &&
+        PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)) == PatternParameter::INSTRUMENT;
+    if (apply_edit(action)) {
+        mark_modified();
+        if (instrumentPatternEdit) s_.seqPatternInstrumentHexUntilMs = now_ms_ + 1000;
+    }
 }
 
 void InputDispatcher::selection_or_single(InputAction (*fn)(const CursorContext&)) {
@@ -1125,6 +1139,7 @@ void InputDispatcher::dpad_nav(NavDir direction) {
 // press there must move the KEY cursor, not the file cursor.
 
 void InputDispatcher::on_dpad_up() {
+    if (top_overlay() == Overlay::SPRITE_PICKER) return;
     if (top_overlay() == Overlay::FX_HELPER) { fx_move_up(s_.fxHelper); return; }
     if (on_sequencer_screen()) { seq_move_dpad(0, -1); return; }
     if (overlay_swallows(Overlay::QWERTY | Overlay::THEME | Overlay::EQ | Overlay::BROWSER)) return;
@@ -1136,6 +1151,7 @@ void InputDispatcher::on_dpad_up() {
 }
 
 void InputDispatcher::on_dpad_down() {
+    if (top_overlay() == Overlay::SPRITE_PICKER) return;
     if (top_overlay() == Overlay::FX_HELPER) { fx_move_down(s_.fxHelper); return; }
     if (on_sequencer_screen()) { seq_move_dpad(0, 1); return; }
     if (overlay_swallows(Overlay::QWERTY | Overlay::THEME | Overlay::EQ | Overlay::BROWSER)) return;
@@ -1147,6 +1163,7 @@ void InputDispatcher::on_dpad_down() {
 }
 
 void InputDispatcher::on_dpad_left() {
+    if (top_overlay() == Overlay::SPRITE_PICKER) return;
     if (top_overlay() == Overlay::FX_HELPER) { fx_move_left(s_.fxHelper); return; }
     if (on_sequencer_screen()) { seq_move_dpad(-1, 0); return; }
     if (overlay_swallows(Overlay::QWERTY | Overlay::THEME | Overlay::EQ | Overlay::BROWSER)) return;
@@ -1164,6 +1181,7 @@ void InputDispatcher::on_dpad_left() {
 }
 
 void InputDispatcher::on_dpad_right() {
+    if (top_overlay() == Overlay::SPRITE_PICKER) return;
     if (top_overlay() == Overlay::FX_HELPER) { fx_move_right(s_.fxHelper); return; }
     if (on_sequencer_screen()) { seq_move_dpad(1, 0); return; }
     if (overlay_swallows(Overlay::QWERTY | Overlay::THEME | Overlay::EQ | Overlay::BROWSER)) return;
@@ -1562,10 +1580,12 @@ static int64_t sample_coarse_step(const SampleEditorState& se) {
 //                      on a colour row, nudge the cursor's channel by ±0x10.
 
 void InputDispatcher::on_a_pressed() {
+    if (s_.spritePicker.open) return;
     if (s_.currentScreen == ScreenType::BANKS) s_.seqBanksAllCursor = true;
 }
 
 void InputDispatcher::on_a_up() {
+    if (s_.spritePicker.open) { sprite_picker_move(s_.spritePicker, -1); return; }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
         if (s_.seqPatternHeaderControl == 1) {
             auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
@@ -1606,6 +1626,7 @@ void InputDispatcher::on_a_up() {
 }
 
 void InputDispatcher::on_a_down() {
+    if (s_.spritePicker.open) { sprite_picker_move(s_.spritePicker, +1); return; }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
         if (s_.seqPatternHeaderControl == 1) {
             auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
@@ -1752,6 +1773,7 @@ void InputDispatcher::on_a_deferred() {
 // ─── A+B: delete / reset ─────────────────────────────────────────────────────────────────────────
 
 void InputDispatcher::on_a_b() {
+    if (s_.spritePicker.open) { sprite_picker_random(s_.spritePicker, static_cast<uint32_t>(now_ms_) ^ 0xA53C9E17u); return; }
     if (overlay_swallows(Overlay::EQ)) return;
     Project& p = host_.edit_project();
 
@@ -2298,8 +2320,10 @@ void InputDispatcher::apply_pattern_range(InputAction (*fn)(const CursorContext&
     ps.scaleKey = p.scaleKey;
 
     if (pattern_.apply_range_action(pattern, ps, s_.seqPatternRangeAnchor,
-                                    s_.seqPatternRangeEnd, fn))
+                                    s_.seqPatternRangeEnd, fn)) {
         mark_modified();
+        if (ps.parameter == PatternParameter::INSTRUMENT) s_.seqPatternInstrumentHexUntilMs = now_ms_ + 1000;
+    }
 }
 
 void InputDispatcher::cancel_pattern_range() {
@@ -2670,6 +2694,16 @@ void InputDispatcher::on_l_b() {
 }
 
 void InputDispatcher::on_l_a() {
+    if (s_.spritePicker.open) return;
+    if (s_.currentScreen == ScreenType::INST_POOL && s_.poolCursorColumn == 0 && s_.project && !s_.project->instruments.empty()) {
+        const int inst = std::clamp(s_.currentInstrument, 0, static_cast<int>(s_.project->instruments.size()) - 1);
+        const int sprite = s_.project->instruments[static_cast<size_t>(inst)].spriteId;
+        s_.spritePicker.instrument = inst;
+        s_.spritePicker.selection = sprite < 0 ? 0 : std::clamp(sprite + 1, 1, SPRITE_COUNT);
+        s_.spritePicker.open = true;
+        s_.spritePickerIgnoreNextLRelease = true;
+        return;
+    }
     if (overlay_swallows(Overlay::BROWSER)) return;
 
     // On the browser L+A is the FILE clipboard's cut/paste — the same "inside a selection it cuts,
@@ -3943,6 +3977,19 @@ void InputDispatcher::on_button_a() {
 }
 
 void InputDispatcher::on_button_b() {
+    if (s_.spritePicker.open) {
+        Project& p = host_.edit_project();
+        if (!p.instruments.empty()) {
+            const int inst = std::clamp(s_.spritePicker.instrument, 0, static_cast<int>(p.instruments.size()) - 1);
+            const int sprite = sprite_picker_sprite_id(s_.spritePicker);
+            if (p.instruments[static_cast<size_t>(inst)].spriteId != sprite) {
+                p.instruments[static_cast<size_t>(inst)].spriteId = sprite;
+                mark_modified();
+            }
+        }
+        s_.spritePicker.open = false;
+        return;
+    }
     // The persistent Pattern ALL^ picker owns B: B is its explicit open/close toggle. Check it
     // before the generic overlay swallow, otherwise FX_HELPER is treated as a modal that consumes
     // B and the close path below is never reached.

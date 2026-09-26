@@ -20,6 +20,8 @@ int main() {
     state.cursorStep = 2;
 
     PatternEditorModule module;
+    assert(PatternEditorModule::footer_parameter(0) == PatternParameter::INSTRUMENT);
+    assert(PatternEditorModule::footer_parameter(1) == PatternParameter::NOTE);
     auto result = module.handle_input(p, state, InputAction::set_value(60));
     assert(result.modified);
     assert(p.steps[2].note == Note::C4());

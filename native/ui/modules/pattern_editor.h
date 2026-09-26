@@ -61,6 +61,9 @@ struct PatternEditorState {
     unsigned scaleMask = 0x0FFFu;
     int scaleKey = 0;
     int selectedFxCode = songcore::FX_NONE;
+    const songcore::Project* project = nullptr;
+    long long uiNowMs = 0;
+    long long instrumentHexUntilMs = 0;
 };
 
 struct PatternEditResult {
