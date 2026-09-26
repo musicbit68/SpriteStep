@@ -213,6 +213,7 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 const auto& projectScale = songcore::scale_at(p, 0);
                 ps.scaleMask = songcore::scale_mask(projectScale);
                 ps.scaleKey = p.scaleKey;
+                ps.selectedFxCode = s.seqPatternSelectedFxCode;
                 ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(ps.track)].direction);
                 ps.shuffle = p.sequencer.tracks[static_cast<size_t>(ps.track)].shuffle;
                 ps.theme = t;

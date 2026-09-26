@@ -27,23 +27,6 @@ using songcore::Project;
 
 namespace {
 
-uint32_t next_pattern_random_seed() {
-    static uint32_t state = 0xA53C9E17u;
-    state ^= state << 13;
-    state ^= state >> 17;
-    state ^= state << 5;
-    return state;
-}
-
-std::vector<int> configured_instrument_pool(const Project& p) {
-    std::vector<int> pool;
-    for (int i = 0; i < static_cast<int>(p.instruments.size()); ++i) {
-        if (!songcore::instrument_is_free(p.instruments[static_cast<size_t>(i)]))
-            pool.push_back(i);
-    }
-    return pool;
-}
-
 /**
  * One load, opened and closed.
  *
@@ -3986,7 +3969,7 @@ void InputDispatcher::on_button_b() {
         const int bank = pattern_bank_for_track(s_, track);
         const int pat = pattern_index_for_track(s_, track);
         const auto& step = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].steps[static_cast<size_t>(s_.seqPatternCursorStep)];
-        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_pattern_all());
+        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_for(visible_effect_type_count()));
         s_.seqPatternFxPickerPersistent = true;
         return;
     }
@@ -4999,42 +4982,7 @@ void InputDispatcher::browser_paste() {
 // ─── SELECT + A / B / R — the browser's file-management chords ───────────────────────────────────
 
 void InputDispatcher::on_select_a() {
-    // Pattern SELECT+A is the parameter-randomize gesture. It deliberately sits at the dispatcher
-    // level rather than in the generic A-edit path: A+DPAD remains precise/manual editing, while
-    // SELECT+A is a single-shot mutation of exactly the selected footer parameter (or ALL^ FX).
-    if (s_.currentScreen == ScreenType::PATTERN && top_overlay() == Overlay::NONE) {
-        Project& p = host_.edit_project();
-        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
-        const int bank = pattern_bank_for_track(s_, track);
-        const int pat = pattern_index_for_track(s_, track);
-        auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)]
-                             .banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
-        const PatternParameter parameter = PatternEditorModule::footer_parameter(
-            std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
-        const std::vector<int> instruments = configured_instrument_pool(p);
-        const uint32_t baseSeed = next_pattern_random_seed() ^
-                                  (static_cast<uint32_t>(track) * 0x9E3779B9u) ^
-                                  (static_cast<uint32_t>(s_.seqPatternCursorStep) * 0x85EBCA6Bu);
-        const int first = s_.seqPatternRangeActive
-                              ? std::clamp(std::min(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd),
-                                           0, pattern.clamped_length() - 1)
-                              : std::clamp(s_.seqPatternCursorStep, 0, pattern.clamped_length() - 1);
-        const int last = s_.seqPatternRangeActive
-                             ? std::clamp(std::max(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd),
-                                          0, pattern.clamped_length() - 1)
-                             : first;
-        bool modified = false;
-        for (int step = first; step <= last; ++step) {
-            const uint32_t seed = baseSeed ^ (static_cast<uint32_t>(step + 1) * 0x27D4EB2Du);
-            modified = PatternEditorModule::randomize_parameter(
-                           pattern, step, parameter, s_.seqPatternSelectedFxCode, seed,
-                           songcore::scale_mask(songcore::scale_at(p, 0)), p.scaleKey, &instruments) || modified;
-        }
-        if (modified) mark_modified();
-        return;
-    }
-
-    if (top_overlay() != Overlay::BROWSER) return;   // otherwise this remains the browser chord
+    if (top_overlay() != Overlay::BROWSER) return;   // a browser-only chord
     if (s_.fileBrowser.mode != BrowserMode::NORMAL) return;
 
     const BrowserItem* item = s_.fileBrowser.current();
