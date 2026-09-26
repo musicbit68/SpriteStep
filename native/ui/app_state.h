@@ -30,7 +30,6 @@
 #include "ui/modules/sample_editor.h"
 #include "ui/modules/theme_editor.h"
 #include "ui/modules/settings_editor.h"
-#include "ui/modules/sprite_picker.h"
 #include "ui/platform_caps.h"
 #include "ui/playhead.h"
 #include "ui/selection.h"
@@ -99,7 +98,7 @@ struct AppState {
     bool seqBanksAllCursor = false;
     int seqPatternTrack = 0;
     int seqPatternCursorStep = 0;
-    int seqPatternParameter = 0; // visible footer parameter index: I..A, ALL^
+    int seqPatternParameter = 0; // visible footer parameter index: N..A, ALL^
     int seqPatternHeaderControl = 0; // 0 grid, 1 direction, 2 shuffle
     int seqArrangePage = 0;
     int seqArrangeCursorRow = 0;
@@ -108,7 +107,6 @@ struct AppState {
     bool seqPatternRateLengthHighlight = false;
     bool seqPatternFxPickerPersistent = false;
     int seqPatternSelectedFxCode = songcore::FX_NONE;
-    long long seqPatternInstrumentHexUntilMs = 0;
     // FMS-style horizontal RANGE EDIT on the Pattern page. The anchor remains fixed while
     // seqPatternRangeEnd follows the editing cursor. Range operations affect the selected footer
     // parameter across every step in the inclusive range.
@@ -313,9 +311,6 @@ struct AppState {
     // A+UP/DOWN on an FX-TYPE column opens it; releasing A commits the highlighted effect
     // (ui/fx_helper.h). While it is open it OWNS the D-pad — the cursor underneath must not move.
     FxHelperState fxHelper{};
-    SpritePickerState spritePicker{};
-    bool spritePickerIgnoreNextLRelease = false;
-    long long uiNowMs = 0;
 
     // ── The file browser, and why it was opened (S6a) ────────────────────────────────────────────
     FileBrowserState fileBrowser{};
@@ -662,7 +657,7 @@ struct AppState {
 inline bool modal_backdrop_active(const AppState& s) {
     // ⚠️ A LOAD IS NOT HERE. It draws a status strip across the top and dims nothing — opening a file
     // asks the user no question, and a screen that goes dark for one reads as far more than it is.
-    return s.qwerty.isOpen || s.confirm.is_open() || s.fxHelper.isOpen || s.spritePicker.open || s.helpFull;
+    return s.qwerty.isOpen || s.confirm.is_open() || s.fxHelper.isOpen || s.helpFull;
 }
 
 /**

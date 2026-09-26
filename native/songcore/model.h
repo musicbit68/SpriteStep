@@ -555,11 +555,6 @@ struct Instrument {
     int slicingMode = 0;
     std::vector<int64_t> sliceMarkers;           // emptyList()
 
-    // Visual-only SpriteStep metadata. -1 means no sprite; 0..127 select the built-in sprite catalog.
-    // It is deliberately kept on Instrument rather than PatternStep so every occurrence of an
-    // instrument shares one visual identity and old projects remain valid when the field is absent.
-    int spriteId = -1;
-
     /**
      * Does this instrument follow note TRANSPOSITION at all? (M8's `TRANSP.`)
      *

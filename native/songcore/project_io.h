@@ -338,7 +338,6 @@ inline Instrument parse_instrument(const json& j, int index) {
     i.eqSlot         = get_int(j, "eqSlot", i.eqSlot);
     i.slicingMode    = get_int(j, "slicingMode", i.slicingMode);
     i.transposeEnabled = get_bool(j, "transposeEnabled", i.transposeEnabled);
-    i.spriteId        = get_int(j, "spriteId", i.spriteId);
     { auto it = j.find("sliceMarkers");
       if (it != j.end() && it->is_array())
           for (const auto& e : *it) i.sliceMarkers.push_back(e.is_number() ? e.get<int64_t>() : 0); }
@@ -893,7 +892,6 @@ inline void emit_instrument(JsonWriter& w, const Instrument& i) {
     if (i.delaySend != 0x00) w.field_int("delaySend", i.delaySend);
     if (i.eqSlot != -1)     w.field_int("eqSlot", i.eqSlot);
     if (i.slicingMode != 0) w.field_int("slicingMode", i.slicingMode);
-    if (i.spriteId >= 0 && i.spriteId < 128) w.field_int("spriteId", i.spriteId);
     // ⚠️ Defaults to TRUE, so the guard is inverted — the field appears only once turned OFF, which is
     // what keeps a project that has never seen scales byte-identical.
     if (!i.transposeEnabled) w.field_bool("transposeEnabled", i.transposeEnabled);

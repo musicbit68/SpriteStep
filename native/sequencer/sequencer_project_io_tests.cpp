@@ -9,7 +9,6 @@ int main() {
     nlohmann::json legacyJson = nlohmann::json::parse(legacy);
     assert(!legacyJson.contains("sequencer"));
 
-    p.instruments[7].spriteId = 42;
     p.sequencer.tracks[0].step_duration_multiplier = 2;
     p.sequencer.tracks[0].direction = SequencerDirection::REVERSE;
     p.sequencer.tracks[0].shuffle = 200;
@@ -46,7 +45,6 @@ int main() {
     assert(qpat.wait_ppqn[3] == 3);
     assert(qpat.wait_ppqn[4] == 6);
     assert(qpat.trigless[5] == 1);
-    assert(q.instruments[7].spriteId == 42);
     assert(q.sequencer.scenes.size() == 1);
     assert(q.sequencer.scenes[0].tracks[0].active);
     assert(q.sequencer.scenes[0].tracks[0].bank == 3);

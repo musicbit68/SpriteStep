@@ -20,8 +20,6 @@ int main() {
     state.cursorStep = 2;
 
     PatternEditorModule module;
-    assert(PatternEditorModule::footer_parameter(0) == PatternParameter::INSTRUMENT);
-    assert(PatternEditorModule::footer_parameter(1) == PatternParameter::NOTE);
     auto result = module.handle_input(p, state, InputAction::set_value(60));
     assert(result.modified);
     assert(p.steps[2].note == Note::C4());
@@ -141,10 +139,14 @@ int main() {
     state.cursorStep = 4;
     auto fxCtx = module.cursor_context(state);
     assert(fxCtx.valueType == CursorValueType::EFFECT_VALUE);
+    assert(fxCtx.currentValue == 0);
+    assert(fxCtx.maxValue == effect_value_max(FX_PAN));
     result = module.handle_input(p, state, InputAction::set_value(0x44));
     assert(result.modified);
     assert(step_has_fx(p.steps[4], FX_PAN));
     assert(PatternEditorModule::parameter_value(p.steps[4], PatternParameter::PAN) == 0x44);
+    fxCtx = module.cursor_context(state);
+    assert(fxCtx.currentValue == 0x44);
     result = module.handle_input(p, state, InputAction::of(ActionType::DELETE));
     assert(result.modified);
     assert(!step_has_fx(p.steps[4], FX_PAN));

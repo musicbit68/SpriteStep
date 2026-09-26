@@ -331,24 +331,6 @@ Hold **R** and press a direction to move in the screen grid (see §4).
 
 ---
 
-### 5.5.1 Pattern Instruments & Sprites
-
-The Pattern footer parameters are ordered **INSTRUMENT, NOTE, VOLUME, PAN, SLIDE, CHANCE, ARPEGGIATOR, ALL^**.
-
-When **INSTRUMENT** is selected, an instrument may have an optional SpriteStep sprite. Assigned sprites replace the hexadecimal instrument value in Pattern cells; an instrument with **NO SPRITE** continues to display its hexadecimal value. After changing an Instrument value, the selected cell briefly remains numeric before returning to the sprite.
-
-Sprites are assigned from **INST.POOL** with the cursor on the instrument name column:
-
-| Input | Action |
-|---|---|
-| L + A | Open Sprite Picker |
-| A + UP / DOWN | Previous / next sprite |
-| A + B | Randomly choose a sprite |
-| B | Assign the centered sprite |
-| L | Cancel |
-
-The Sprite Picker is a vertical reel: the selected sprite is centered, with half of the previous and next sprites visible above and below it. There are 128 built-in sprites plus **NO SPRITE**.
-
 ### 5.6 Copy / Paste
 
 Works on PHRASE, CHAIN, SONG, and TABLE screens.

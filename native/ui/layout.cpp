@@ -205,6 +205,10 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 std::copy(std::begin(s.playheads), std::end(s.playheads), std::begin(ps.playheads));
                 ps.cursorStep = s.seqPatternCursorStep;
                 ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+                // ALL^ is a parameter in its own right: the renderer must receive the exact FX
+                // selected in the persistent picker, otherwise the Pattern page has no code to
+                // look up and appears stuck at the empty/default value.
+                ps.selectedFxCode = s.seqPatternSelectedFxCode;
                 ps.rateLengthHighlight = s.seqPatternRateLengthHighlight;
                 ps.rangeActive = s.seqPatternRangeActive;
                 ps.rangeStart = s.seqPatternRangeAnchor;
@@ -215,10 +219,6 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.scaleKey = p.scaleKey;
                 ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(ps.track)].direction);
                 ps.shuffle = p.sequencer.tracks[static_cast<size_t>(ps.track)].shuffle;
-                ps.selectedFxCode = s.seqPatternSelectedFxCode;
-                ps.project = &p;
-                ps.uiNowMs = s.uiNowMs;
-                ps.instrumentHexUntilMs = s.seqPatternInstrumentHexUntilMs;
                 ps.theme = t;
                 ps.isPlaying = s.isPlaying;
                 pattern_.draw(c, moduleX, EDITOR_Y, ps);
@@ -492,7 +492,6 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
     // LAST, over everything, including the right bar and the status line — an overlay is modal, and
     // its backdrop dims the whole frame. (The EQ editor and the theme editor join them here.)
     draw_fx_helper(c, s.fxHelper, t);
-    draw_sprite_picker(c, s.spritePicker, t);
     if (s.qwerty.isOpen) qwerty_.draw(c, s.qwerty, t);
     draw_confirm_dialog(c, s.confirm, t);
 }

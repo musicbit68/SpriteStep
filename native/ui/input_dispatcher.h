@@ -1012,10 +1012,9 @@ class InputDispatcher {
         THEME     = 1u << 2,
         EQ        = 1u << 3,
         FX_HELPER = 1u << 4,
-        SPRITE_PICKER = 1u << 5,
-        BROWSER   = 1u << 6,
-        LOADING   = 1u << 7,
-        HELP      = 1u << 8,
+        BROWSER   = 1u << 5,
+        LOADING   = 1u << 6,
+        HELP      = 1u << 7,
     };
 
     friend constexpr Overlay operator|(Overlay a, Overlay b) {
@@ -1048,7 +1047,6 @@ class InputDispatcher {
         if (theme_open())       return Overlay::THEME;
         if (eq_open())          return Overlay::EQ;
         if (s_.fxHelper.isOpen) return Overlay::FX_HELPER;
-        if (s_.spritePicker.open) return Overlay::SPRITE_PICKER;
         if (on_browser())       return Overlay::BROWSER;
         return Overlay::NONE;
     }
