@@ -1,0 +1,20 @@
+# Only what the build actually references. `app/build.gradle.kts` and the root build file between them
+# use every entry below and nothing else — the ~15 Compose/test/serialization entries that used to sit
+# here outlived the Kotlin UI they were added for, and an unreferenced entry is not free: F-Droid's
+# builder fetches what the build declares.
+
+[versions]
+agp = "8.13.2"
+kotlin = "2.2.21"
+coreKtx = "1.17.0"
+coreSplashscreen = "1.0.1"
+oboe = "1.10.0"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+oboe = { group = "com.google.oboe", name = "oboe", version.ref = "oboe" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
