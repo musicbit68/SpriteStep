@@ -6,6 +6,12 @@
 using namespace pt::ui;
 using namespace songcore;
 
+static int test_fx_slot(const sequencer::PatternStep& step, int code) {
+    for (int slot = 1; slot <= 3; ++slot)
+        if (step_fx_type(step, slot) == code) return slot;
+    return 0;
+}
+
 int main() {
     sequencer::Pattern p;
     p.length = 8;
@@ -147,6 +153,27 @@ int main() {
     assert(PatternEditorModule::parameter_value(p.steps[4], PatternParameter::PAN) == 0x44);
     fxCtx = module.cursor_context(state);
     assert(fxCtx.currentValue == 0x44);
+
+    // The actual handheld gesture is A+RIGHT/LEFT (and A+UP/DOWN for the coarse step). Make sure the
+    // action generated from the selected ALL^ cursor context edits the selected FX rather than merely
+    // displaying 00.
+    state.selectedFxCode = FX_PAN;
+    state.parameter = PatternParameter::MORE;
+    state.cursorStep = 4;
+    fxCtx = module.cursor_context(state);
+    result = module.handle_input(p, state, increment(fxCtx));
+    assert(result.modified);
+    assert(step_fx_value(p.steps[4], test_fx_slot(p.steps[4], FX_PAN)) == 0x45);
+    fxCtx = module.cursor_context(state);
+    result = module.handle_input(p, state, increment_fast(fxCtx));
+    assert(result.modified);
+    assert(step_fx_value(p.steps[4], test_fx_slot(p.steps[4], FX_PAN)) == 0x55);
+
+    // Pressing A to arm an already-present ALL^ effect must NOT reset its value to 00.
+    result = module.handle_input(p, state, InputAction::set_value(0x66));
+    assert(result.modified);
+    assert(step_fx_value(p.steps[4], test_fx_slot(p.steps[4], FX_PAN)) == 0x66);
+
     result = module.handle_input(p, state, InputAction::of(ActionType::DELETE));
     assert(result.modified);
     assert(!step_has_fx(p.steps[4], FX_PAN));

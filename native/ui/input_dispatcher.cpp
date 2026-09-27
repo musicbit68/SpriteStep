@@ -1566,6 +1566,10 @@ void InputDispatcher::on_a_pressed() {
 }
 
 void InputDispatcher::on_a_up() {
+    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        fx_move_up(s_.fxHelper);
+        return;
+    }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
         if (s_.seqPatternHeaderControl == 1) {
             auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
@@ -1606,6 +1610,10 @@ void InputDispatcher::on_a_up() {
 }
 
 void InputDispatcher::on_a_down() {
+    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        fx_move_down(s_.fxHelper);
+        return;
+    }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
         if (s_.seqPatternHeaderControl == 1) {
             auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
@@ -1644,6 +1652,10 @@ void InputDispatcher::on_a_down() {
 }
 
 void InputDispatcher::on_a_left() {
+    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        fx_move_left(s_.fxHelper);
+        return;
+    }
     if (s_.currentScreen == ScreenType::BANKS) { s_.seqBanksAllCursor = true; seq_a_action(); return; }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
         if (s_.seqPatternHeaderControl == 1) {
@@ -1678,6 +1690,10 @@ void InputDispatcher::on_a_left() {
 }
 
 void InputDispatcher::on_a_right() {
+    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        fx_move_right(s_.fxHelper);
+        return;
+    }
     if (s_.currentScreen == ScreenType::BANKS) { s_.seqBanksAllCursor = true; seq_a_action(); return; }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
         if (s_.seqPatternHeaderControl == 1) {
@@ -2293,6 +2309,7 @@ void InputDispatcher::apply_pattern_range(InputAction (*fn)(const CursorContext&
     ps.cursorStep = s_.seqPatternCursorStep;
     ps.parameter = PatternEditorModule::footer_parameter(
         std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+    ps.selectedFxCode = s_.seqPatternSelectedFxCode;
     const auto& projectScale = songcore::scale_at(p, 0);
     ps.scaleMask = songcore::scale_mask(projectScale);
     ps.scaleKey = p.scaleKey;
@@ -2325,7 +2342,18 @@ void InputDispatcher::seq_a_action() {
             std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
         if (parameter == PatternParameter::MORE) {
             if (s_.seqPatternSelectedFxCode == songcore::FX_NONE) return;
-            if (!PatternEditorModule::parameter_present(pattern.steps[index], PatternParameter::MORE)) {
+            // MORE represents the FX selected in the persistent picker, so presence must be checked
+            // against THAT code. PatternParameter::MORE itself is deliberately not tied to one FX code
+            // and parameter_present(MORE) therefore cannot answer this question. Most importantly, do
+            // not reset an existing selected FX to 00 merely because the user pressed A to arm it.
+            int existingSlot = 0;
+            for (int slot = 1; slot <= 3; ++slot) {
+                if (songcore::step_fx_type(pattern.steps[index], slot) == s_.seqPatternSelectedFxCode) {
+                    existingSlot = slot;
+                    break;
+                }
+            }
+            if (existingSlot == 0) {
                 const int slot = PatternEditorModule::ensure_fx_slot(pattern.steps[index], s_.seqPatternSelectedFxCode);
                 songcore::step_set_fx_value(pattern.steps[index], slot, 0);
                 mark_modified();
@@ -3764,12 +3792,14 @@ void InputDispatcher::midi_action() {
 // ─── The plain buttons ───────────────────────────────────────────────────────────────────────────
 
 void InputDispatcher::on_button_a() {
-    // Pattern ALL^ uses a persistent FX picker: A confirms the highlighted effect and closes the
-    // picker. This must be handled before the sequencer-screen dispatch below, because the picker is
-    // an overlay over PATTERN and the underlying PATTERN A action would otherwise simply reopen it.
+    // Pattern ALL^ uses a persistent FX picker. A CONFIRMS the highlighted effect and closes the
+    // picker; once it is closed, A+DPAD is free to edit the selected FX value on the Pattern page.
+    // This must happen before the sequencer-screen dispatch below, otherwise A would be interpreted
+    // as the Pattern cell action underneath the picker.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        // ALL^ is a parameter editor: A remains the edit/adjust button, so it must not
-        // accept/close the picker. B is the dedicated picker toggle.
+        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
+        s_.fxHelper = FxHelperState{};
+        s_.seqPatternFxPickerPersistent = false;
         return;
     }
 
