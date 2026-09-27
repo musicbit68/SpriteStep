@@ -783,6 +783,11 @@ bool InputDispatcher::apply_edit(const InputAction& action) {
             PatternEditorState ps;
             ps.track = track; ps.cursorStep = s_.seqPatternCursorStep;
             ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+            // ALL^ is backed by the FX code selected in the persistent picker. The generic
+            // A+DPAD path reaches apply_edit(), so this state must carry that code through to
+            // PatternEditorModule::handle_input(). Without it, MORE sees FX_NONE and silently
+            // ignores every SET_VALUE action; the UI can display 00 but nothing can edit it.
+            ps.selectedFxCode = s_.seqPatternSelectedFxCode;
             const auto r = pattern_.handle_input(pattern, ps, action);
             return r.modified;
         }
