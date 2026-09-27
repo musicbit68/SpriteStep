@@ -306,6 +306,11 @@ enum class SequencerDirection : uint8_t {
 
 struct SequencerPattern {
     uint8_t length = SEQUENCER_MAX_STEPS; // 1..16
+    // Playback timing/traversal belongs to the pattern itself, not the track.
+    // This lets Pattern 1 and Pattern 2 on the same track have independent rate/direction/shuffle.
+    uint8_t step_duration_multiplier = 1; // 1..8
+    SequencerDirection direction = SequencerDirection::FORWARD;
+    uint8_t shuffle = 0; // 0..255; delays every other step by up to half its step duration.
     std::array<PhraseStep, SEQUENCER_MAX_STEPS> steps{};
     // FMS-style per-step trigger condition. 0x00 = always; otherwise high nibble is the
     // occurrence (1..15) and low nibble is the cycle count (1..15). This is deliberately
@@ -333,11 +338,6 @@ struct SequencerBank {
 
 struct SequencerTrack {
     std::array<SequencerBank, SEQUENCER_BANKS> banks{};
-    uint8_t step_duration_multiplier = 1;
-    // FMS-style traversal controls. Rate/length remain the pattern's length and this track's
-    // step-duration multiplier; direction only changes which authored step is visited.
-    SequencerDirection direction = SequencerDirection::FORWARD;
-    uint8_t shuffle = 0; // 0..255; delays every other step by up to half its step duration.
 };
 
 struct SequencerPatternRef {

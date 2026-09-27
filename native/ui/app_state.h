@@ -99,7 +99,6 @@ struct AppState {
     int seqPatternTrack = 0;
     int seqPatternCursorStep = 0;
     int seqPatternParameter = 0; // visible footer parameter index: N..A, ALL^
-    int seqPatternHeaderControl = 0; // 0 grid, 1 direction, 2 shuffle
     int seqArrangePage = 0;
     int seqArrangeCursorRow = 0;
     int seqArrangeCursorColumn = 0;

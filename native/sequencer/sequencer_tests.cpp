@@ -85,11 +85,11 @@ static void test_cycle_lengths() {
     Project p;
     make_pattern(p, 0, 0, 0, 16);
     make_pattern(p, 1, 0, 0, 16);
-    p.tracks[0].step_duration_multiplier = 1;
-    p.tracks[1].step_duration_multiplier = 2;
+    pattern_at(p, 0, 0, 0).step_duration_multiplier = 1;
+    pattern_at(p, 1, 0, 0).step_duration_multiplier = 2;
 
-    assert(pattern_duration_base_steps(pattern_at(p, 0, 0, 0), p.tracks[0]) == 16);
-    assert(pattern_duration_base_steps(pattern_at(p, 1, 0, 0), p.tracks[1]) == 32);
+    assert(pattern_duration_base_steps(pattern_at(p, 0, 0, 0)) == 16);
+    assert(pattern_duration_base_steps(pattern_at(p, 1, 0, 0)) == 32);
 }
 
 static void test_shared_clock_different_rates() {
@@ -100,8 +100,8 @@ static void test_shared_clock_different_rates() {
     p.scenes.push_back(s);
     make_pattern(p, 0, 0, 0, 16);
     make_pattern(p, 1, 0, 0, 16);
-    p.tracks[0].step_duration_multiplier = 1;
-    p.tracks[1].step_duration_multiplier = 2;
+    pattern_at(p, 0, 0, 0).step_duration_multiplier = 1;
+    pattern_at(p, 1, 0, 0).step_duration_multiplier = 2;
 
     Sequencer seq(p, 48000);
     seq.set_tempo(120);
@@ -123,15 +123,38 @@ static void test_shared_clock_different_rates() {
     assert(lastT2 == 7);
 }
 
+static void test_pattern_level_playback_settings_are_independent() {
+    Project p;
+    make_pattern(p, 0, 0, 0, 4);
+    make_pattern(p, 0, 0, 1, 4);
+    auto& a = pattern_at(p, 0, 0, 0);
+    auto& b = pattern_at(p, 0, 0, 1);
+    a.step_duration_multiplier = 1;
+    b.step_duration_multiplier = 4;
+    a.direction = songcore::SequencerDirection::FORWARD;
+    b.direction = songcore::SequencerDirection::REVERSE;
+    a.shuffle = 0;
+    b.shuffle = 255;
+    assert(pattern_duration_base_steps(a) == 4);
+    assert(pattern_duration_base_steps(b) == 16);
+
+    ArrangeScene scene;
+    scene.tracks[0] = PatternRef{true, 0, 0};
+    p.scenes.push_back(scene);
+    Sequencer seq(p, 48000);
+    seq.start_arrange();
+    assert(seq.runtime().scene_end_frame == seq.base_step_frames() * 4);
+}
+
 static void test_short_pattern() {
     Project p;
     ArrangeScene s;
     s.tracks[0] = PatternRef{true, 0, 0};
     p.scenes.push_back(s);
     make_pattern(p, 0, 0, 0, 4);
-    p.tracks[0].step_duration_multiplier = 3;
+    pattern_at(p, 0, 0, 0).step_duration_multiplier = 3;
 
-    assert(pattern_duration_base_steps(pattern_at(p, 0, 0, 0), p.tracks[0]) == 12);
+    assert(pattern_duration_base_steps(pattern_at(p, 0, 0, 0)) == 12);
 }
 
 static void test_scene_duration_is_longest_effective_pattern() {
@@ -142,8 +165,8 @@ static void test_scene_duration_is_longest_effective_pattern() {
     p.scenes.push_back(s);
     make_pattern(p, 0, 0, 0, 16);
     make_pattern(p, 1, 0, 0, 16);
-    p.tracks[0].step_duration_multiplier = 1;
-    p.tracks[1].step_duration_multiplier = 2;
+    pattern_at(p, 0, 0, 0).step_duration_multiplier = 1;
+    pattern_at(p, 1, 0, 0).step_duration_multiplier = 2;
 
     Sequencer seq(p, 48000);
     seq.start_arrange();
@@ -242,7 +265,7 @@ static void test_direction_changes_authored_step_order_without_changing_cycle_du
     s.tracks[0] = PatternRef{true, 0, 0};
     p.scenes.push_back(s);
     auto& pat = make_pattern(p, 0, 0, 0, 4);
-    p.tracks[0].direction = songcore::SequencerDirection::REVERSE;
+    pattern_at(p, 0, 0, 0).direction = songcore::SequencerDirection::REVERSE;
 
     Sequencer seq(p, 48000);
     seq.start_arrange();
@@ -253,13 +276,35 @@ static void test_direction_changes_authored_step_order_without_changing_cycle_du
     assert(seq.runtime().scene_end_frame == step * 4);
 }
 
+static void test_pingpong_repeats_terminal_step() {
+    Project p;
+    ArrangeScene s;
+    s.tracks[0] = PatternRef{true, 0, 0};
+    p.scenes.push_back(s);
+    auto& pat = make_pattern(p, 0, 0, 0, 4);
+    pat.direction = songcore::SequencerDirection::PINGPONG;
+
+    Sequencer seq(p, 48000);
+    std::array<int, TRACK_COUNT> patterns{};
+    patterns.fill(0);
+    seq.start_banks(0, patterns);
+    const int64_t step = seq.base_step_frames();
+    auto allEvents = seq.schedule_until(step * 8);
+    std::vector<ScheduledStep> events;
+    for (const auto& e : allEvents) if (e.track == 0) events.push_back(e);
+    assert(events.size() == 8);
+    assert(events[0].step == 0 && events[1].step == 1 && events[2].step == 2 && events[3].step == 3);
+    assert(events[4].step == 3 && events[5].step == 2 && events[6].step == 1 && events[7].step == 0);
+    assert(events[4].frame == step * 4);
+}
+
 static void test_shuffle_delays_every_other_step_but_keeps_grid_cycle() {
     Project p;
     ArrangeScene s;
     s.tracks[0] = PatternRef{true, 0, 0};
     p.scenes.push_back(s);
     make_pattern(p, 0, 0, 0, 4);
-    p.tracks[0].shuffle = 255;
+    pattern_at(p, 0, 0, 0).shuffle = 255;
 
     Sequencer seq(p, 48000);
     seq.start_arrange();
@@ -383,12 +428,14 @@ int main() {
     test_banks_mode_loops_without_arrange();
     test_cycle_lengths();
     test_shared_clock_different_rates();
+    test_pattern_level_playback_settings_are_independent();
     test_short_pattern();
     test_scene_duration_is_longest_effective_pattern();
     test_cue_waits_for_pattern_boundary();
     test_same_pattern_continues_across_arrange_scenes();
     test_condition_follows_pattern_repeat_across_scenes();
     test_direction_changes_authored_step_order_without_changing_cycle_duration();
+    test_pingpong_repeats_terminal_step();
     test_shuffle_delays_every_other_step_but_keeps_grid_cycle();
     test_wait_delays_trigger_without_changing_grid();
     test_trigless_preserves_grid_and_marks_event();

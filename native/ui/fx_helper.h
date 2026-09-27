@@ -259,30 +259,6 @@ inline FxLayout fx_layout_for(int visible_effect_count) {
     return out;
 }
 
-/**
- * Pattern-page ALL^ picker.  This deliberately contains only effects that can be represented as
- * Pattern parameters/step FX.  Dedicated footer parameters (PAN/PSL/CHA/ARP) stay out of the picker
- * because their own footer entries already expose them.  REV and DEL remain here because they are
- * genuine Pattern FX even though they do not have dedicated footer entries.
- */
-inline FxLayout fx_layout_pattern_all() {
-    static constexpr int CODES[] = {
-        songcore::FX_LAT, songcore::FX_ARC, songcore::FX_OFFSET, songcore::FX_REPEAT,
-        songcore::FX_PBN, songcore::FX_PVB, songcore::FX_PVX, songcore::FX_PIT, songcore::FX_SLI,
-        songcore::FX_BCK, songcore::FX_EQN, songcore::FX_CUT, songcore::FX_RES, songcore::FX_LPF,
-        songcore::FX_HPF, songcore::FX_BPF, songcore::FX_DRV, songcore::FX_CRU, songcore::FX_FIN,
-        songcore::FX_TSX, songcore::FX_LPO, songcore::FX_RSEND, songcore::FX_DSEND
-    };
-
-    FxLayout out;
-    FxGroup g;
-    g.title = "PATTERN";
-    g.codes.push_back(songcore::FX_NONE);
-    g.codes.insert(g.codes.end(), std::begin(CODES), std::end(CODES));
-    out.groups.push_back(std::move(g));
-    return out;
-}
-
 /** Every effect, MIDI included — the default, and what a build with the MIDI surfaces shows. */
 inline const FxLayout& fx_layout_full() {
     static const FxLayout full = fx_layout_for(songcore::EFFECT_TYPE_COUNT);

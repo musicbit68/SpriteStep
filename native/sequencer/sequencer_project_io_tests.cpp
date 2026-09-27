@@ -9,10 +9,10 @@ int main() {
     nlohmann::json legacyJson = nlohmann::json::parse(legacy);
     assert(!legacyJson.contains("sequencer"));
 
-    p.sequencer.tracks[0].step_duration_multiplier = 2;
-    p.sequencer.tracks[0].direction = SequencerDirection::REVERSE;
-    p.sequencer.tracks[0].shuffle = 200;
     auto &pat = p.sequencer.tracks[0].banks[3].patterns[5];
+    pat.step_duration_multiplier = 2;
+    pat.direction = SequencerDirection::REVERSE;
+    pat.shuffle = 200;
     pat.length = 7;
     pat.steps[0].note = Note::C4();
     pat.steps[0].instrument = 4;
@@ -33,11 +33,11 @@ int main() {
     assert(j.contains("sequencer"));
     Project q = parse_project(j);
     normalize_and_migrate(q);
-    assert(q.sequencer.tracks[0].step_duration_multiplier == 2);
-    assert(q.sequencer.tracks[0].direction == SequencerDirection::REVERSE);
-    assert(q.sequencer.tracks[0].shuffle == 200);
     auto &qpat = q.sequencer.tracks[0].banks[3].patterns[5];
     assert(qpat.length == 7);
+    assert(qpat.step_duration_multiplier == 2);
+    assert(qpat.direction == SequencerDirection::REVERSE);
+    assert(qpat.shuffle == 200);
     assert(qpat.steps[0].note == Note::C4());
     assert(qpat.steps[0].instrument == 4);
     assert(qpat.steps[1].fx1Type == 0x16 && qpat.steps[1].fx1Value == 0x40);
@@ -55,8 +55,22 @@ int main() {
     Project legacyProject = parse_project(legacyJson);
     normalize_and_migrate(legacyProject);
     assert(legacyProject.sequencer.scenes.empty());
-    assert(legacyProject.sequencer.tracks[0].step_duration_multiplier == 1);
     assert(legacyProject.sequencer.tracks[0].banks[0].patterns[0].length == 16);
+
+    nlohmann::json legacySeq = {
+        {"version", 2},
+        {"tracks", nlohmann::json::array({nlohmann::json{
+            {"stepDurationMultiplier", 4}, {"direction", static_cast<int>(SequencerDirection::PINGPONG)},
+            {"shuffle", 123}, {"patterns", nlohmann::json::array({nlohmann::json{
+                {"bank", 0}, {"pattern", 0}, {"length", 4}, {"steps", nlohmann::json::array()}
+            }})}
+        }})}
+    };
+    auto migrated = detail::parse_sequencer(legacySeq);
+    const auto& migratedPattern = migrated.tracks[0].banks[0].patterns[0];
+    assert(migratedPattern.step_duration_multiplier == 4);
+    assert(migratedPattern.direction == SequencerDirection::PINGPONG);
+    assert(migratedPattern.shuffle == 123);
 
     std::cout << "sequencer project IO tests: PASS\n";
 }

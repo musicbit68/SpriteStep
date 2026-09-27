@@ -69,12 +69,12 @@ inline Pattern& pattern_at(Project& project, int track, int bank, int pattern) {
         .patterns[static_cast<size_t>(pattern)];
 }
 
-inline int step_duration_multiplier(const Track& track) {
-    return std::clamp(static_cast<int>(track.step_duration_multiplier), 1, 8);
+inline int step_duration_multiplier(const Pattern& pattern) {
+    return std::clamp(static_cast<int>(pattern.step_duration_multiplier), 1, 8);
 }
 
-inline int64_t pattern_duration_base_steps(const Pattern& pattern, const Track& track) {
-    return static_cast<int64_t>(pattern.clamped_length()) * step_duration_multiplier(track);
+inline int64_t pattern_duration_base_steps(const Pattern& pattern) {
+    return static_cast<int64_t>(pattern.clamped_length()) * step_duration_multiplier(pattern);
 }
 
 } // namespace sequencer

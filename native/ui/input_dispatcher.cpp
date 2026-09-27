@@ -27,6 +27,30 @@ using songcore::Project;
 
 namespace {
 
+uint32_t next_pattern_random_seed() {
+    static uint32_t state = 0xA53C9E17u;
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+std::vector<int> configured_instrument_pool(const Project& p) {
+    std::vector<int> pool;
+    for (int i = 0; i < static_cast<int>(p.instruments.size()); ++i) {
+        if (!songcore::instrument_is_free(p.instruments[static_cast<size_t>(i)]))
+            pool.push_back(i);
+    }
+    return pool;
+}
+
+
+
+PatternParameter selected_pattern_footer_parameter(const AppState& s) {
+    return PatternEditorModule::footer_parameter(
+        std::clamp(s.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+}
+
 /**
  * One load, opened and closed.
  *
@@ -430,7 +454,7 @@ bool handheld_major_view(const AppState& s) {
 }
 
 void InputDispatcher::on_l_seq_left() {
-    if (s_.currentScreen == ScreenType::PATTERN) { s_.seqPatternHeaderControl = 0; seq_parameter_step(-1); return; }
+    if (s_.currentScreen == ScreenType::PATTERN) { seq_parameter_step(-1); return; }
     if (s_.currentScreen == ScreenType::BANKS) {
         s_.seqBank = std::max(0, s_.seqBank - 1);
         return;
@@ -443,7 +467,7 @@ void InputDispatcher::on_l_seq_left() {
 }
 
 void InputDispatcher::on_l_seq_right() {
-    if (s_.currentScreen == ScreenType::PATTERN) { s_.seqPatternHeaderControl = 0; seq_parameter_step(+1); return; }
+    if (s_.currentScreen == ScreenType::PATTERN) { seq_parameter_step(+1); return; }
     if (s_.currentScreen == ScreenType::BANKS) {
         s_.seqBank = std::min(songcore::SEQUENCER_BANKS - 1, s_.seqBank + 1);
         return;
@@ -457,12 +481,12 @@ void InputDispatcher::on_l_seq_right() {
 
 void InputDispatcher::on_l_seq_up() {
     if (s_.currentScreen != ScreenType::PATTERN) return;
-    s_.seqPatternHeaderControl = (s_.seqPatternHeaderControl + 2) % 3;
+    seq_parameter_step(-1);
 }
 
 void InputDispatcher::on_l_seq_down() {
     if (s_.currentScreen != ScreenType::PATTERN) return;
-    s_.seqPatternHeaderControl = (s_.seqPatternHeaderControl + 1) % 3;
+    seq_parameter_step(+1);
 }
 
 void InputDispatcher::on_l_b_released() {
@@ -480,19 +504,25 @@ void InputDispatcher::on_r_released() {
 void InputDispatcher::on_lr_seq_up() {
     if (s_.currentScreen == ScreenType::PATTERN) s_.seqPatternRateLengthHighlight = true;
     if (s_.currentScreen != ScreenType::PATTERN || !s_.project) return;
-    auto& track = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-    const int before = std::max(1, static_cast<int>(track.step_duration_multiplier));
+    const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+    const int bank = pattern_bank_for_track(s_, track);
+    const int pat = pattern_index_for_track(s_, track);
+    auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+    const int before = std::clamp(static_cast<int>(pattern.step_duration_multiplier), 1, 8);
     const int after = std::min(8, before + 1);
-    if (after != before) { track.step_duration_multiplier = static_cast<uint8_t>(after); mark_modified(); }
+    if (after != before) { pattern.step_duration_multiplier = static_cast<uint8_t>(after); mark_modified(); }
 }
 
 void InputDispatcher::on_lr_seq_down() {
     if (s_.currentScreen == ScreenType::PATTERN) s_.seqPatternRateLengthHighlight = true;
     if (s_.currentScreen != ScreenType::PATTERN || !s_.project) return;
-    auto& track = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-    const int before = std::max(1, static_cast<int>(track.step_duration_multiplier));
+    const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+    const int bank = pattern_bank_for_track(s_, track);
+    const int pat = pattern_index_for_track(s_, track);
+    auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+    const int before = std::clamp(static_cast<int>(pattern.step_duration_multiplier), 1, 8);
     const int after = std::max(1, before - 1);
-    if (after != before) { track.step_duration_multiplier = static_cast<uint8_t>(after); mark_modified(); }
+    if (after != before) { pattern.step_duration_multiplier = static_cast<uint8_t>(after); mark_modified(); }
 }
 
 void InputDispatcher::on_lr_seq_left() {
@@ -504,11 +534,7 @@ void InputDispatcher::on_lr_seq_left() {
     auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
     const int before = pattern.clamped_length();
     const int after = std::max(1, before - 1);
-    if (after != before) {
-        pattern.length = static_cast<uint8_t>(after);
-        s_.seqPatternCursorStep = std::min(s_.seqPatternCursorStep, after - 1);
-        mark_modified();
-    }
+    if (after != before) { pattern.length = static_cast<uint8_t>(after); s_.seqPatternCursorStep = std::min(s_.seqPatternCursorStep, after - 1); mark_modified(); }
 }
 
 void InputDispatcher::on_lr_seq_right() {
@@ -521,62 +547,6 @@ void InputDispatcher::on_lr_seq_right() {
     const int before = pattern.clamped_length();
     const int after = std::min(songcore::SEQUENCER_MAX_STEPS, before + 1);
     if (after != before) { pattern.length = static_cast<uint8_t>(after); mark_modified(); }
-}
-
-int InputDispatcher::cursor_row() const {
-    switch (s_.currentScreen) {
-        case ScreenType::TABLE:  return s_.tableCursorRow;
-        case ScreenType::GROOVE: return s_.grooveCursorRow;
-        case ScreenType::SCALE:  return s_.scaleCursorRow;
-        default:                 return s_.cursorRow;
-    }
-}
-
-int InputDispatcher::cursor_column() const {
-    switch (s_.currentScreen) {
-        case ScreenType::TABLE:  return s_.tableCursorColumn;
-        case ScreenType::GROOVE: return 1;
-        case ScreenType::SCALE:  return 1;
-        case ScreenType::PATTERN: return s_.seqPatternTrack;
-        case ScreenType::BANKS:   return s_.seqBanksCursorColumn;
-        case ScreenType::ARRANGE: return s_.seqArrangeCursorColumn;
-        default:                 return s_.cursorColumn;
-    }
-}
-
-void InputDispatcher::set_cursor_row(int row) {
-    switch (s_.currentScreen) {
-        case ScreenType::TABLE:  s_.tableCursorRow = row;  break;
-        case ScreenType::GROOVE: s_.grooveCursorRow = row; break;
-        case ScreenType::SCALE:  s_.scaleCursorRow = row;  break;
-        default:                 s_.cursorRow = row;       break;
-    }
-}
-
-int InputDispatcher::max_selection_column() const {
-    switch (s_.currentScreen) {
-        case ScreenType::PHRASE: return 9;
-        case ScreenType::CHAIN:  return 2;
-        case ScreenType::SONG:   return 8;
-        case ScreenType::TABLE:  return 8;
-        default:                 return 1;
-    }
-}
-
-int InputDispatcher::max_selection_row() const {
-    // SONG is 256 rows deep and shows 16. A SCREEN-scope selection there means the whole ARRANGEMENT,
-    // not the visible window — which is the only reason `maxRow` is a parameter at all.
-    return (s_.currentScreen == ScreenType::SONG) ? 255 : 15;
-}
-
-bool InputDispatcher::on_instrument_screen() const {
-    return s_.currentScreen == ScreenType::INSTRUMENT ||
-           s_.currentScreen == ScreenType::INST_POOL ||
-           s_.currentScreen == ScreenType::MODS;
-}
-
-bool InputDispatcher::on_globals_screen() const {
-    return s_.currentScreen == ScreenType::MIXER || s_.currentScreen == ScreenType::EFFECTS;
 }
 
 CursorContext InputDispatcher::cursor_context() const {
@@ -616,16 +586,18 @@ CursorContext InputDispatcher::cursor_context() const {
                 ps.patterns[static_cast<size_t>(tix)] = &p.sequencer.tracks[static_cast<size_t>(tix)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
                 ps.banks[static_cast<size_t>(tix)] = bank;
                 ps.patternIndices[static_cast<size_t>(tix)] = pat;
-                ps.stepDurationMultipliers[static_cast<size_t>(tix)] = p.sequencer.tracks[static_cast<size_t>(tix)].step_duration_multiplier;
+                ps.stepDurationMultipliers[static_cast<size_t>(tix)] = p.sequencer.tracks[static_cast<size_t>(tix)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].step_duration_multiplier;
             }
             ps.track = track;
+            ps.bank = ps.banks[static_cast<size_t>(track)];
+            ps.patternIndex = ps.patternIndices[static_cast<size_t>(track)];
             ps.cursorStep = std::clamp(s_.seqPatternCursorStep, 0, ps.patterns[static_cast<size_t>(track)]->clamped_length() - 1);
             ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
             ps.scaleMask = songcore::scale_mask(songcore::scale_at(p, 0));
             ps.scaleKey = p.scaleKey;
             ps.selectedFxCode = s_.seqPatternSelectedFxCode;
-            ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(track)].direction);
-            ps.shuffle = p.sequencer.tracks[static_cast<size_t>(track)].shuffle;
+            ps.direction = static_cast<int>(ps.patterns[static_cast<size_t>(track)]->direction);
+            ps.shuffle = ps.patterns[static_cast<size_t>(track)]->shuffle;
             return pattern_.cursor_context(ps);
         }
         case ScreenType::BANKS:
@@ -783,11 +755,6 @@ bool InputDispatcher::apply_edit(const InputAction& action) {
             PatternEditorState ps;
             ps.track = track; ps.cursorStep = s_.seqPatternCursorStep;
             ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
-            // ALL^ is backed by the FX code selected in the persistent picker. The generic
-            // A+DPAD path reaches apply_edit(), so this state must carry that code through to
-            // PatternEditorModule::handle_input(). Without it, MORE sees FX_NONE and silently
-            // ignores every SET_VALUE action; the UI can display 00 but nothing can edit it.
-            ps.selectedFxCode = s_.seqPatternSelectedFxCode;
             const auto r = pattern_.handle_input(pattern, ps, action);
             return r.modified;
         }
@@ -1571,21 +1538,21 @@ void InputDispatcher::on_a_pressed() {
 }
 
 void InputDispatcher::on_a_up() {
-    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        fx_move_up(s_.fxHelper);
-        return;
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::DIRECTION) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(pattern.direction) + 1) % 4);
+        mark_modified(); return;
     }
-    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
-        if (s_.seqPatternHeaderControl == 1) {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(tr.direction) + 1) % 4);
-            mark_modified();
-        } else {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.shuffle = static_cast<uint8_t>(std::min(255, static_cast<int>(tr.shuffle) + 32));
-            mark_modified();
-        }
-        return;
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::SHUFFLE) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.shuffle = static_cast<uint8_t>(std::min(255, static_cast<int>(pattern.shuffle) + 32));
+        mark_modified(); return;
     }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
         apply_pattern_range(pt::ui::increment_fast);
@@ -1615,21 +1582,21 @@ void InputDispatcher::on_a_up() {
 }
 
 void InputDispatcher::on_a_down() {
-    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        fx_move_down(s_.fxHelper);
-        return;
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::DIRECTION) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(pattern.direction) + 3) % 4);
+        mark_modified(); return;
     }
-    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
-        if (s_.seqPatternHeaderControl == 1) {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(tr.direction) + 3) % 4);
-            mark_modified();
-        } else {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.shuffle = static_cast<uint8_t>(std::max(0, static_cast<int>(tr.shuffle) - 32));
-            mark_modified();
-        }
-        return;
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::SHUFFLE) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.shuffle = static_cast<uint8_t>(std::max(0, static_cast<int>(pattern.shuffle) - 32));
+        mark_modified(); return;
     }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
         apply_pattern_range(pt::ui::decrement_fast);
@@ -1657,22 +1624,22 @@ void InputDispatcher::on_a_down() {
 }
 
 void InputDispatcher::on_a_left() {
-    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        fx_move_left(s_.fxHelper);
-        return;
-    }
     if (s_.currentScreen == ScreenType::BANKS) { s_.seqBanksAllCursor = true; seq_a_action(); return; }
-    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
-        if (s_.seqPatternHeaderControl == 1) {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(tr.direction) + 3) % 4);
-            mark_modified();
-        } else {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.shuffle = static_cast<uint8_t>(std::max(0, static_cast<int>(tr.shuffle) - 16));
-            mark_modified();
-        }
-        return;
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::DIRECTION) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(pattern.direction) + 3) % 4);
+        mark_modified(); return;
+    }
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::SHUFFLE) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.shuffle = static_cast<uint8_t>(std::max(0, static_cast<int>(pattern.shuffle) - 16));
+        mark_modified(); return;
     }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
         apply_pattern_range(pt::ui::decrement);
@@ -1695,22 +1662,22 @@ void InputDispatcher::on_a_left() {
 }
 
 void InputDispatcher::on_a_right() {
-    if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        fx_move_right(s_.fxHelper);
-        return;
-    }
     if (s_.currentScreen == ScreenType::BANKS) { s_.seqBanksAllCursor = true; seq_a_action(); return; }
-    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternHeaderControl != 0) {
-        if (s_.seqPatternHeaderControl == 1) {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(tr.direction) + 1) % 4);
-            mark_modified();
-        } else {
-            auto& tr = s_.project->sequencer.tracks[static_cast<size_t>(std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1))];
-            tr.shuffle = static_cast<uint8_t>(std::min(255, static_cast<int>(tr.shuffle) + 16));
-            mark_modified();
-        }
-        return;
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::DIRECTION) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.direction = static_cast<songcore::SequencerDirection>((static_cast<int>(pattern.direction) + 1) % 4);
+        mark_modified(); return;
+    }
+    if (s_.currentScreen == ScreenType::PATTERN && selected_pattern_footer_parameter(s_) == PatternParameter::SHUFFLE) {
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        pattern.shuffle = static_cast<uint8_t>(std::min(255, static_cast<int>(pattern.shuffle) + 16));
+        mark_modified(); return;
     }
     if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
         apply_pattern_range(pt::ui::increment);
@@ -2240,7 +2207,6 @@ void InputDispatcher::seq_parameter_step(int direction) {
     int p = (s_.seqPatternParameter + direction) % count;
     if (p < 0) p += count;
     s_.seqPatternParameter = p;
-    s_.seqPatternHeaderControl = 0;
 }
 
 void InputDispatcher::seq_move_dpad(int dx, int dy) {
@@ -2314,7 +2280,6 @@ void InputDispatcher::apply_pattern_range(InputAction (*fn)(const CursorContext&
     ps.cursorStep = s_.seqPatternCursorStep;
     ps.parameter = PatternEditorModule::footer_parameter(
         std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
-    ps.selectedFxCode = s_.seqPatternSelectedFxCode;
     const auto& projectScale = songcore::scale_at(p, 0);
     ps.scaleMask = songcore::scale_mask(projectScale);
     ps.scaleKey = p.scaleKey;
@@ -2347,18 +2312,7 @@ void InputDispatcher::seq_a_action() {
             std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
         if (parameter == PatternParameter::MORE) {
             if (s_.seqPatternSelectedFxCode == songcore::FX_NONE) return;
-            // MORE represents the FX selected in the persistent picker, so presence must be checked
-            // against THAT code. PatternParameter::MORE itself is deliberately not tied to one FX code
-            // and parameter_present(MORE) therefore cannot answer this question. Most importantly, do
-            // not reset an existing selected FX to 00 merely because the user pressed A to arm it.
-            int existingSlot = 0;
-            for (int slot = 1; slot <= 3; ++slot) {
-                if (songcore::step_fx_type(pattern.steps[index], slot) == s_.seqPatternSelectedFxCode) {
-                    existingSlot = slot;
-                    break;
-                }
-            }
-            if (existingSlot == 0) {
+            if (!PatternEditorModule::parameter_present(pattern.steps[index], PatternParameter::MORE)) {
                 const int slot = PatternEditorModule::ensure_fx_slot(pattern.steps[index], s_.seqPatternSelectedFxCode);
                 songcore::step_set_fx_value(pattern.steps[index], slot, 0);
                 mark_modified();
@@ -2737,30 +2691,17 @@ void InputDispatcher::on_l_a() {
             .banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
 
         if (s_.seqPatternRangeActive) {
-            const int first = std::clamp(std::min(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1);
-            const int last = std::clamp(std::max(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1);
-            s_.seqPatternRangeClipboard = sequencer::Pattern{};
-            s_.seqPatternRangeClipboardLength = last - first + 1;
-            for (int i = 0; i < s_.seqPatternRangeClipboardLength; ++i) {
-                s_.seqPatternRangeClipboard.steps[static_cast<size_t>(i)] = pattern.steps[static_cast<size_t>(first + i)];
-                s_.seqPatternRangeClipboard.conditions[static_cast<size_t>(i)] = pattern.conditions[static_cast<size_t>(first + i)];
-                s_.seqPatternRangeClipboard.wait_ppqn[static_cast<size_t>(i)] = pattern.wait_ppqn[static_cast<size_t>(first + i)];
-                s_.seqPatternRangeClipboard.trigless[static_cast<size_t>(i)] = pattern.trigless[static_cast<size_t>(first + i)];
-            }
-            s_.seqPatternRangeClipboardValid = true;
+            s_.seqPatternRangeClipboardValid = PatternEditorModule::copy_range(
+                pattern, s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd,
+                s_.seqPatternRangeClipboard, s_.seqPatternRangeClipboardLength);
             cancel_pattern_range();
             return;
         }
 
         if (s_.seqPatternRangeClipboardValid && s_.seqPatternRangeClipboardLength > 0) {
-            const int count = std::min(s_.seqPatternRangeClipboardLength,
-                                       pattern.clamped_length() - s_.seqPatternCursorStep);
-            for (int i = 0; i < count; ++i) {
-                pattern.steps[static_cast<size_t>(s_.seqPatternCursorStep + i)] = s_.seqPatternRangeClipboard.steps[static_cast<size_t>(i)];
-                pattern.conditions[static_cast<size_t>(s_.seqPatternCursorStep + i)] = s_.seqPatternRangeClipboard.conditions[static_cast<size_t>(i)];
-                pattern.wait_ppqn[static_cast<size_t>(s_.seqPatternCursorStep + i)] = s_.seqPatternRangeClipboard.wait_ppqn[static_cast<size_t>(i)];
-                pattern.trigless[static_cast<size_t>(s_.seqPatternCursorStep + i)] = s_.seqPatternRangeClipboard.trigless[static_cast<size_t>(i)];
-            }
+            const int count = PatternEditorModule::paste_range(
+                pattern, s_.seqPatternCursorStep, s_.seqPatternRangeClipboard,
+                s_.seqPatternRangeClipboardLength);
             if (count > 0) mark_modified();
             return;
         }
@@ -3797,14 +3738,12 @@ void InputDispatcher::midi_action() {
 // ─── The plain buttons ───────────────────────────────────────────────────────────────────────────
 
 void InputDispatcher::on_button_a() {
-    // Pattern ALL^ uses a persistent FX picker. A CONFIRMS the highlighted effect and closes the
-    // picker; once it is closed, A+DPAD is free to edit the selected FX value on the Pattern page.
-    // This must happen before the sequencer-screen dispatch below, otherwise A would be interpreted
-    // as the Pattern cell action underneath the picker.
+    // Pattern ALL^ uses a persistent FX picker: A confirms the highlighted effect and closes the
+    // picker. This must be handled before the sequencer-screen dispatch below, because the picker is
+    // an overlay over PATTERN and the underlying PATTERN A action would otherwise simply reopen it.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
-        s_.fxHelper = FxHelperState{};
-        s_.seqPatternFxPickerPersistent = false;
+        // ALL^ is a parameter editor: A remains the edit/adjust button, so it must not
+        // accept/close the picker. B is the dedicated picker toggle.
         return;
     }
 
@@ -4004,10 +3943,7 @@ void InputDispatcher::on_button_b() {
         const int bank = pattern_bank_for_track(s_, track);
         const int pat = pattern_index_for_track(s_, track);
         const auto& step = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].steps[static_cast<size_t>(s_.seqPatternCursorStep)];
-        const int initialFx = s_.seqPatternSelectedFxCode != songcore::FX_NONE
-                                  ? s_.seqPatternSelectedFxCode
-                                  : songcore::step_fx_type(step, 1);
-        s_.fxHelper = fx_helper_opened_at(initialFx, fx_layout_pattern_all());
+        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_for(visible_effect_type_count()));
         s_.seqPatternFxPickerPersistent = true;
         return;
     }
@@ -5020,6 +4956,38 @@ void InputDispatcher::browser_paste() {
 // ─── SELECT + A / B / R — the browser's file-management chords ───────────────────────────────────
 
 void InputDispatcher::on_select_a() {
+    // Pattern SELECT+A randomizes the selected footer parameter. In Range Edit it randomizes
+    // each selected step with a distinct seed.
+    if (s_.currentScreen == ScreenType::PATTERN && top_overlay() == Overlay::NONE) {
+        Project& p = host_.edit_project();
+        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+        const int bank = pattern_bank_for_track(s_, track);
+        const int pat = pattern_index_for_track(s_, track);
+        auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)]
+                             .banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+        const PatternParameter parameter = PatternEditorModule::footer_parameter(
+            std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+        const std::vector<int> instruments = configured_instrument_pool(p);
+        const uint32_t baseSeed = next_pattern_random_seed() ^
+                                  (static_cast<uint32_t>(track) * 0x9E3779B9u) ^
+                                  (static_cast<uint32_t>(s_.seqPatternCursorStep) * 0x85EBCA6Bu);
+        const int first = s_.seqPatternRangeActive
+                              ? std::clamp(std::min(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1)
+                              : std::clamp(s_.seqPatternCursorStep, 0, pattern.clamped_length() - 1);
+        const int last = s_.seqPatternRangeActive
+                             ? std::clamp(std::max(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1)
+                             : first;
+        bool modified = false;
+        for (int step = first; step <= last; ++step) {
+            const uint32_t seed = baseSeed ^ (static_cast<uint32_t>(step + 1) * 0x27D4EB2Du);
+            modified = PatternEditorModule::randomize_parameter(
+                           pattern, step, parameter, s_.seqPatternSelectedFxCode, seed,
+                           songcore::scale_mask(songcore::scale_at(p, 0)), p.scaleKey, &instruments) || modified;
+        }
+        if (modified) mark_modified();
+        return;
+    }
+
     if (top_overlay() != Overlay::BROWSER) return;   // a browser-only chord
     if (s_.fileBrowser.mode != BrowserMode::NORMAL) return;
 

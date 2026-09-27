@@ -24,7 +24,9 @@ int64_t Sequencer::base_step_frames() const {
 }
 
 int64_t Sequencer::pattern_step_frames(int track) const {
-    return base_step_frames() * step_duration_multiplier(project_.tracks[static_cast<size_t>(track)]);
+    const auto& rt = runtime_.tracks[static_cast<size_t>(track)];
+    const Pattern& pattern = pattern_at(project_, track, rt.bank, rt.pattern);
+    return base_step_frames() * step_duration_multiplier(pattern);
 }
 
 void Sequencer::start(int64_t frame) {
@@ -99,7 +101,7 @@ void Sequencer::enter_scene(int scene, int64_t frame) {
             initialize_track_from_ref(t, ref, frame);
         }
         const Pattern& p = pattern_at(project_, t, ref.bank, ref.pattern);
-        duration = std::max(duration, pattern_duration_base_steps(p, project_.tracks[static_cast<size_t>(t)]) * base_step_frames());
+        duration = std::max(duration, pattern_duration_base_steps(p) * base_step_frames());
     }
 
     runtime_.scene_end_frame = frame + duration;
@@ -139,7 +141,7 @@ int64_t Sequencer::next_pattern_boundary(int track, int64_t currentFrame) const 
     }
 
     const int64_t duration = pattern_duration_base_steps(
-        pattern_at(project_, track, bank, pattern), project_.tracks[static_cast<size_t>(track)]) * base_step_frames();
+        pattern_at(project_, track, bank, pattern)) * base_step_frames();
     if (duration <= 0) return currentFrame;
     if (currentFrame < start) return start;
 
@@ -209,20 +211,21 @@ bool Sequencer::condition_passes(const Pattern& pattern, int step, uint64_t patt
 
 int Sequencer::authored_step_for(const Track& track, const Pattern& pattern, int ordinal,
                                   uint64_t patternRepeat, int trackId) const {
+    (void)track;
     const int length = pattern.clamped_length();
     const int i = std::clamp(ordinal, 0, length - 1);
-    switch (track.direction) {
+    switch (pattern.direction) {
         case songcore::SequencerDirection::FORWARD:
             return i;
         case songcore::SequencerDirection::REVERSE:
             return length - 1 - i;
         case songcore::SequencerDirection::PINGPONG: {
             if (length <= 1) return 0;
-            // Preserve the project's fixed pattern-cycle duration: each cycle still emits exactly
-            // `length` events, while successive cycles traverse the opposite half of the ping-pong.
-            const int period = length * 2 - 2;
-            const int phase = static_cast<int>((patternRepeat * static_cast<uint64_t>(length) + i) % period);
-            return phase < length ? phase : period - phase;
+            // The endpoint is shared by the two directions. A new ping-pong cycle therefore
+            // deliberately repeats the terminal step: 0,1,2,3 | 3,2,1,0 | 0,1,2,3.
+            // This keeps every authored step in every cycle and keeps the cycle exactly `length`
+            // step slots long, with no missing terminal note.
+            return (patternRepeat & 1u) == 0 ? i : (length - 1 - i);
         }
         case songcore::SequencerDirection::RANDOM: {
             // Deterministic per track/pattern/cycle/ordinal. This keeps the audio schedule repeatable
@@ -237,11 +240,11 @@ int Sequencer::authored_step_for(const Track& track, const Pattern& pattern, int
     return i;
 }
 
-int64_t Sequencer::shuffle_offset_frames(const Track& track, int ordinal, int64_t stepFrames) const {
-    if (track.shuffle == 0 || (ordinal & 1) == 0) return 0;
+int64_t Sequencer::shuffle_offset_frames(const Pattern& pattern, int ordinal, int64_t stepFrames) const {
+    if (pattern.shuffle == 0 || (ordinal & 1) == 0) return 0;
     // FMS describes shuffle as delaying every other step by up to half a step. We leave the following
     // even step on the original grid, so the pattern's total cycle duration does not change.
-    return (stepFrames / 2) * static_cast<int64_t>(track.shuffle) / 255;
+    return (stepFrames / 2) * static_cast<int64_t>(pattern.shuffle) / 255;
 }
 
 void Sequencer::emit_next_step(int track, std::vector<ScheduledStep>& out) {
@@ -277,7 +280,7 @@ void Sequencer::emit_next_step(int track, std::vector<ScheduledStep>& out) {
     // 6 PPQN = one whole step. This is deliberately applied to the already-expanded track step
     // duration, so a 2x track still gets the same musical subdivision.
     const int64_t waitFrames = static_cast<int64_t>(waitPpqn) * stepFrames / 6;
-    const int64_t eventFrame = rt.next_step_frame + shuffle_offset_frames(tr, ordinal, stepFrames) + waitFrames;
+    const int64_t eventFrame = rt.next_step_frame + shuffle_offset_frames(p, ordinal, stepFrames) + waitFrames;
     if (condition_passes(p, authoredStep, rt.pattern_repeat)) {
         ScheduledStep scheduled{
             track,

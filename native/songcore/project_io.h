@@ -105,6 +105,9 @@ inline Phrase parse_phrase(const json& j, int index) {
 inline SequencerPattern parse_sequencer_pattern(const json& j) {
     SequencerPattern p;
     p.length = static_cast<uint8_t>(get_int(j, "length", p.length));
+    p.step_duration_multiplier = static_cast<uint8_t>(std::clamp(get_int(j, "stepDurationMultiplier", p.step_duration_multiplier), 1, 8));
+    p.shuffle = static_cast<uint8_t>(std::clamp(get_int(j, "shuffle", p.shuffle), 0, 255));
+    p.direction = static_cast<SequencerDirection>(std::clamp(get_int(j, "direction", static_cast<int>(p.direction)), 0, 3));
     auto it = j.find("steps");
     if (it != j.end() && it->is_array()) {
         for (size_t i = 0; i < p.steps.size() && i < it->size(); ++i) {
@@ -137,12 +140,15 @@ inline SequencerData parse_sequencer(const json& j) {
         for (size_t ti = 0; ti < d.tracks.size() && ti < tracks->size(); ++ti) {
             const json& tj = (*tracks)[ti];
             if (!tj.is_object()) continue;
-            d.tracks[ti].step_duration_multiplier = static_cast<uint8_t>(
-                get_int(tj, "stepDurationMultiplier", d.tracks[ti].step_duration_multiplier));
-            d.tracks[ti].shuffle = static_cast<uint8_t>(std::clamp(
-                get_int(tj, "shuffle", d.tracks[ti].shuffle), 0, 255));
-            const int dir = get_int(tj, "direction", static_cast<int>(d.tracks[ti].direction));
-            d.tracks[ti].direction = static_cast<SequencerDirection>(std::clamp(dir, 0, 3));
+            // Version-2 projects stored these three values on the track. Keep those projects
+            // playable by using the legacy values as defaults for patterns that do not carry the
+            // new pattern-level fields. New files always write the values with each pattern.
+            const bool hasLegacyRate = tj.find("stepDurationMultiplier") != tj.end();
+            const bool hasLegacyDirection = tj.find("direction") != tj.end();
+            const bool hasLegacyShuffle = tj.find("shuffle") != tj.end();
+            const uint8_t legacyRate = static_cast<uint8_t>(std::clamp(get_int(tj, "stepDurationMultiplier", 1), 1, 8));
+            const auto legacyDirection = static_cast<SequencerDirection>(std::clamp(get_int(tj, "direction", 0), 0, 3));
+            const uint8_t legacyShuffle = static_cast<uint8_t>(std::clamp(get_int(tj, "shuffle", 0), 0, 255));
             auto patterns = tj.find("patterns");
             if (patterns == tj.end() || !patterns->is_array()) continue;
             for (const auto& pj : *patterns) {
@@ -150,8 +156,11 @@ inline SequencerData parse_sequencer(const json& j) {
                 int bank = get_int(pj, "bank", -1);
                 int pattern = get_int(pj, "pattern", -1);
                 if (bank < 0 || bank >= SEQUENCER_BANKS || pattern < 0 || pattern >= SEQUENCER_PATTERNS) continue;
-                d.tracks[ti].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pattern)] =
-                    parse_sequencer_pattern(pj);
+                auto parsed = parse_sequencer_pattern(pj);
+                if (hasLegacyRate && pj.find("stepDurationMultiplier") == pj.end()) parsed.step_duration_multiplier = legacyRate;
+                if (hasLegacyDirection && pj.find("direction") == pj.end()) parsed.direction = legacyDirection;
+                if (hasLegacyShuffle && pj.find("shuffle") == pj.end()) parsed.shuffle = legacyShuffle;
+                d.tracks[ti].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pattern)] = parsed;
             }
         }
     }
@@ -718,6 +727,9 @@ inline bool phrase_step_is_default(const PhraseStep& s) {
 
 inline bool sequencer_pattern_is_default(const SequencerPattern& p) {
     if (p.length != SEQUENCER_MAX_STEPS) return false;
+    if (p.step_duration_multiplier != 1) return false;
+    if (p.direction != SequencerDirection::FORWARD) return false;
+    if (p.shuffle != 0) return false;
     for (const auto& s : p.steps)
         if (!phrase_step_is_default(s)) return false;
     for (const auto c : p.conditions)
@@ -732,9 +744,6 @@ inline bool sequencer_pattern_is_default(const SequencerPattern& p) {
 inline bool sequencer_is_default(const SequencerData& d) {
     if (!d.scenes.empty()) return false;
     for (const auto& t : d.tracks) {
-        if (t.step_duration_multiplier != 1) return false;
-        if (t.direction != SequencerDirection::FORWARD) return false;
-        if (t.shuffle != 0) return false;
         for (const auto& b : t.banks)
             for (const auto& p : b.patterns)
                 if (!sequencer_pattern_is_default(p)) return false;
@@ -747,6 +756,9 @@ inline void emit_sequencer_pattern(JsonWriter& w, int bank, int pattern, const S
     w.field_int("bank", bank);
     w.field_int("pattern", pattern);
     if (p.length != SEQUENCER_MAX_STEPS) w.field_int("length", p.length);
+    if (p.step_duration_multiplier != 1) w.field_int("stepDurationMultiplier", p.step_duration_multiplier);
+    if (p.direction != SequencerDirection::FORWARD) w.field_int("direction", static_cast<int>(p.direction));
+    if (p.shuffle != 0) w.field_int("shuffle", p.shuffle);
     w.key("steps");
     w.begin_array();
     for (const auto& s : p.steps) { w.element(); emit_phrase_step(w, s); }
@@ -786,12 +798,6 @@ inline void emit_sequencer(JsonWriter& w, const SequencerData& d) {
     for (const auto& t : d.tracks) {
         w.element();
         w.begin_object();
-        if (t.step_duration_multiplier != 1)
-            w.field_int("stepDurationMultiplier", t.step_duration_multiplier);
-        if (t.direction != SequencerDirection::FORWARD)
-            w.field_int("direction", static_cast<int>(t.direction));
-        if (t.shuffle != 0)
-            w.field_int("shuffle", t.shuffle);
         w.key("patterns");
         w.begin_array();
         for (int bank = 0; bank < SEQUENCER_BANKS; ++bank)

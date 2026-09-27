@@ -74,7 +74,7 @@ private:
     void emit_next_step(int track, std::vector<ScheduledStep>& out);
     bool condition_passes(const Pattern& pattern, int step, uint64_t patternRepeat) const;
     int authored_step_for(const Track& track, const Pattern& pattern, int ordinal, uint64_t patternRepeat, int trackId) const;
-    int64_t shuffle_offset_frames(const Track& track, int ordinal, int64_t stepFrames) const;
+    int64_t shuffle_offset_frames(const Pattern& pattern, int ordinal, int64_t stepFrames) const;
     bool advance_scene_if_needed(int64_t frame);
 
     Project& project_;
