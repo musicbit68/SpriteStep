@@ -1774,8 +1774,7 @@ void InputDispatcher::on_a_right() {
 
 void InputDispatcher::on_a_released() {
     s_.seqBanksAllCursor = false;
-    // The persistent Pattern ALL^ picker is navigated after A is released, so its release must not
-    // commit the first effect. The normal PocketTracker FX helper still commits on A release.
+    // The persistent Pattern ALL^ picker commits on A press, not on A release.
     if (s_.seqPatternFxPickerPersistent) return;
     // Ahead of the overlay test: it is not an overlay's gesture, and nothing can start a second
     // preview while A is down (START is refused under A), so this can only silence the one A began.
@@ -3825,12 +3824,14 @@ void InputDispatcher::midi_action() {
 // ─── The plain buttons ───────────────────────────────────────────────────────────────────────────
 
 void InputDispatcher::on_button_a() {
-    // Pattern ALL^ uses a persistent FX picker: A confirms the highlighted effect and closes the
-    // picker. This must be handled before the sequencer-screen dispatch below, because the picker is
-    // an overlay over PATTERN and the underlying PATTERN A action would otherwise simply reopen it.
+    // Pattern ALL^ uses a persistent FX picker. A selects the highlighted effect and returns to the
+    // Pattern editor; after that, A+LEFT/RIGHT (or A+UP/DOWN) edits the selected FX value. The picker
+    // must consume this A before the underlying PATTERN action, otherwise the same press would be
+    // interpreted as editing/opening the parameter underneath the overlay.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        // ALL^ is a parameter editor: A remains the edit/adjust button, so it must not
-        // accept/close the picker. B is the dedicated picker toggle.
+        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
+        s_.fxHelper = FxHelperState{};
+        s_.seqPatternFxPickerPersistent = false;
         return;
     }
 
@@ -4004,9 +4005,9 @@ void InputDispatcher::on_button_a() {
 }
 
 void InputDispatcher::on_button_b() {
-    // The persistent Pattern ALL^ picker owns B: B is its explicit open/close toggle. Check it
-    // before the generic overlay swallow, otherwise FX_HELPER is treated as a modal that consumes
-    // B and the close path below is never reached.
+    // The persistent Pattern ALL^ picker owns B as cancel/close. Check it before the generic overlay
+    // swallow, otherwise FX_HELPER is treated as a modal that consumes B and the close path below is
+    // never reached.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
         s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
         s_.fxHelper = FxHelperState{};
