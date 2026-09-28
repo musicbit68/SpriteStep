@@ -1478,6 +1478,10 @@ class InputDispatcher {
      */
     float sliceTapPlayhead_ = -1.0f;
 
+    // Monotonic salt for SELECT+A Pattern randomization. A new press must produce a new
+    // random stream even when it occurs on the same cell/parameter.
+    uint32_t patternRandomSerial_ = 0;
+
     SampleEditorModule sample_{};
 };
 

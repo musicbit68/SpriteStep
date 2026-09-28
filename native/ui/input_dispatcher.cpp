@@ -437,7 +437,19 @@ bool handheld_major_view(const AppState& s) {
 }
 
 void InputDispatcher::on_l_seq_left() {
-    if (s_.currentScreen == ScreenType::PATTERN) { s_.seqPatternHeaderControl = 0; seq_parameter_step(-1); return; }
+    if (s_.currentScreen == ScreenType::PATTERN) {
+        if (s_.seqPatternHeaderControl == 2) {
+            s_.seqPatternHeaderControl = 1;
+        } else if (s_.seqPatternHeaderControl == 1) {
+            s_.seqPatternHeaderControl = 0;
+            s_.seqPatternParameter = PatternEditorModule::FOOTER_PARAMETER_COUNT - 1;
+        } else if (s_.seqPatternParameter == 0) {
+            s_.seqPatternParameter = PatternEditorModule::FOOTER_PARAMETER_COUNT - 1;
+        } else {
+            --s_.seqPatternParameter;
+        }
+        return;
+    }
     if (s_.currentScreen == ScreenType::BANKS) {
         s_.seqBank = std::max(0, s_.seqBank - 1);
         return;
@@ -450,7 +462,19 @@ void InputDispatcher::on_l_seq_left() {
 }
 
 void InputDispatcher::on_l_seq_right() {
-    if (s_.currentScreen == ScreenType::PATTERN) { s_.seqPatternHeaderControl = 0; seq_parameter_step(+1); return; }
+    if (s_.currentScreen == ScreenType::PATTERN) {
+        if (s_.seqPatternHeaderControl == 1) {
+            s_.seqPatternHeaderControl = 2;
+        } else if (s_.seqPatternHeaderControl == 2) {
+            s_.seqPatternHeaderControl = 0;
+            s_.seqPatternParameter = 0;
+        } else if (s_.seqPatternParameter == PatternEditorModule::FOOTER_PARAMETER_COUNT - 1) {
+            s_.seqPatternHeaderControl = 1;
+        } else {
+            ++s_.seqPatternParameter;
+        }
+        return;
+    }
     if (s_.currentScreen == ScreenType::BANKS) {
         s_.seqBank = std::min(songcore::SEQUENCER_BANKS - 1, s_.seqBank + 1);
         return;
@@ -5033,7 +5057,11 @@ void InputDispatcher::on_select_a() {
         ps.selectedFxCode = s_.seqPatternSelectedFxCode;
         ps.scaleMask = songcore::scale_mask(songcore::scale_at(p, 0));
         ps.scaleKey = p.scaleKey;
-        uint32_t seed = 0x9E3779B9u ^ static_cast<uint32_t>(track * 0x45D9F3Bu + bank * 0x27D4EB2Du + pat * 0x165667B1u + s_.seqPatternCursorStep + s_.seqPatternParameter * 97);
+        uint32_t seed = 0x9E3779B9u ^
+                        static_cast<uint32_t>(track * 0x45D9F3Bu + bank * 0x27D4EB2Du +
+                                              pat * 0x165667B1u + s_.seqPatternCursorStep +
+                                              s_.seqPatternParameter * 97) ^
+                        (++patternRandomSerial_ * 0x85EBCA6Bu);
         const auto instrumentPool = configured_instrument_pool(p);
         auto randomize_step = [&](int stepIndex) { return PatternEditorModule::randomize_parameter(pattern, stepIndex, ps.parameter, ps.selectedFxCode, seed + static_cast<uint32_t>(stepIndex * 0x9E3779B9u), ps.scaleMask, ps.scaleKey, &instrumentPool); };
         bool changed = false;

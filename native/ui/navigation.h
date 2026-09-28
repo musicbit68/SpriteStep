@@ -119,11 +119,17 @@ inline NavResult navigate_down(const NavState& s) {
 
 inline NavResult navigate_left(const NavState& s) {
     const int col = detail::context_column(s);
+
+    // SCALE and INST.POOL form a horizontal context pair, with PROJECT immediately to the
+    // left of SCALE. These are not members of the five-screen major ring.
+    if (s.currentScreen == ScreenType::SCALE)
+        return {ScreenType::PROJECT, 2};
+    if (s.currentScreen == ScreenType::INST_POOL)
+        return {ScreenType::SCALE, 2};
+
     if (is_main_row(s.currentScreen)) {
         return {main_screen_for_column(std::max(0, col - 1)), std::max(0, col - 1)};
     }
-    // From a vertical context, return to its owning main screen rather than
-    // exposing any of the legacy Song/Chain/Phrase/Table screens.
     if (detail::is_spritestep_screen(s.currentScreen))
         return {main_screen_for_column(col), col};
     return {s.currentScreen, col};
@@ -131,6 +137,13 @@ inline NavResult navigate_left(const NavState& s) {
 
 inline NavResult navigate_right(const NavState& s) {
     const int col = detail::context_column(s);
+
+    if (s.currentScreen == ScreenType::SCALE)
+        return {ScreenType::INST_POOL, 3};
+
+    if (s.currentScreen == ScreenType::INST_POOL)
+        return {ScreenType::INSTRUMENT, 3};
+
     if (is_main_row(s.currentScreen)) {
         return {main_screen_for_column(std::min(4, col + 1)), std::min(4, col + 1)};
     }

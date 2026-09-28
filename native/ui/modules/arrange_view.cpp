@@ -118,7 +118,7 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
                 // keep the header indicator above it. Empty cells get the same playhead marker.
                 if (ref.active) {
                     c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
-                    c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
+                    c.draw_text(macro_text(ref), cellX + 2, cellY + 9, 0xFF000000,
                                 CHAR_SPACING, FONT_SCALE);
                 } else {
                     c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, t.textPlayhead);
@@ -126,14 +126,14 @@ void ArrangeViewModule::draw(Canvas& c, int x, int y, const ArrangeViewState& s)
             } else if (cursor) {
                 if (ref.active) {
                     c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
-                    c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
+                    c.draw_text(macro_text(ref), cellX + 2, cellY + 9, 0xFF000000,
                                 CHAR_SPACING, FONT_SCALE);
                 } else {
                     c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);
                 }
             } else if (ref.active) {
                 c.fill_rect(cellX, cellY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, 0xFFA0A0A0);
-                c.draw_text(macro_text(ref), cellX + 5, cellY + 10, 0xFF000000,
+                c.draw_text(macro_text(ref), cellX + 2, cellY + 9, 0xFF000000,
                             CHAR_SPACING, FONT_SCALE);
             } else {
                 c.fill_rect(cellX + matrix::empty_offset(), cellY + matrix::empty_offset(), matrix::EMPTY_SIZE, matrix::EMPTY_SIZE, matrix::EMPTY_COLOR);

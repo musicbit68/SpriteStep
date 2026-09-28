@@ -341,7 +341,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     c.fill_rect(x, y, WIDTH, HEIGHT, t.background);
 
     c.draw_text("PATTERN", x + 10, y + 5, t.textTitle, CHAR_SPACING, FONT_SCALE);
-    c.draw_text("TRA" + std::to_string(s.track + 1) + "  BAN" + hex1(s.bank) + "  PAT" + hex1(s.patternIndex),
+    c.draw_text("TRA " + std::to_string(s.track + 1) + "  BAN " + hex1(s.bank) + "  PAT " + hex1(s.patternIndex),
                 x + 150, y + 5, t.textParam, CHAR_SPACING, FONT_SCALE);
 
     // Eight project tracks are rows. Each row displays the pattern selected for that track in Banks.
@@ -377,8 +377,8 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
             const bool active = step_has_data(data) || p->conditions[si] != 0 ||
                                 p->wait_ppqn[si] != 0 || p->trigless[si] != 0;
             const bool cursor = selectedTrack && step == s.cursorStep;
-            if (active || cursor) {
-                const Argb fill = cursor ? t.rowCursor : t.textValue;
+            if (active) {
+                const Argb fill = t.textValue;
                 c.fill_rect(sx, rowY, matrix::OCCUPIED_SIZE, matrix::OCCUPIED_SIZE, fill);
 
                 // Only the NOTE parameter uses the two-line pitch display.  When another
@@ -487,12 +487,19 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
                     selected ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
         px += w + 3;
     }
-    const int dirX = x + 430;
-    const int shfX = x + 500;
-    if (s.headerControl == 1) c.fill_rect(dirX - 4, y + BOTTOM_Y, 54, 24, t.rowCursor);
-    if (s.headerControl == 2) c.fill_rect(shfX - 4, y + BOTTOM_Y, 70, 24, t.rowCursor);
-    c.draw_text("DIR", dirX, y + BOTTOM_Y + 5, s.headerControl == 1 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
-    c.draw_text("SHF " + hex2(s.shuffle), shfX, y + BOTTOM_Y + 5, s.headerControl == 2 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
+    // Direction and Shuffle are Pattern-local footer controls. They sit immediately after ALL^
+    // so L+D-pad can walk the complete footer in visual order.
+    const int dirX = px + 4;
+    const int shfX = dirX + 72;
+    const char* dirIcon = s.direction == 1 ? "<>" :
+                          (s.direction == 2 ? "<" :
+                           (s.direction == 3 ? "?" : ">"));
+    if (s.headerControl == 1) c.fill_rect(dirX - 4, y + BOTTOM_Y, 68, 24, t.rowCursor);
+    if (s.headerControl == 2) c.fill_rect(shfX - 4, y + BOTTOM_Y, 72, 24, t.rowCursor);
+    c.draw_text("DIR " + std::string(dirIcon), dirX, y + BOTTOM_Y + 5,
+                s.headerControl == 1 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
+    c.draw_text("SHF " + hex2(s.shuffle), shfX, y + BOTTOM_Y + 5,
+                s.headerControl == 2 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
 
 }
 
