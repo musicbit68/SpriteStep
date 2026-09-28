@@ -24,9 +24,10 @@ int64_t Sequencer::base_step_frames() const {
 }
 
 int64_t Sequencer::pattern_step_frames(int track) const {
-    const auto& rt = runtime_.tracks[static_cast<size_t>(track)];
-    const Pattern& pattern = pattern_at(project_, track, rt.bank, rt.pattern);
-    return base_step_frames() * step_duration_multiplier(pattern);
+    const Track& tr = project_.tracks[static_cast<size_t>(track)];
+    const Pattern& p = pattern_at(project_, track, runtime_.tracks[static_cast<size_t>(track)].bank,
+                                   runtime_.tracks[static_cast<size_t>(track)].pattern);
+    return base_step_frames() * step_duration_multiplier(p, tr);
 }
 
 void Sequencer::start(int64_t frame) {
@@ -101,7 +102,7 @@ void Sequencer::enter_scene(int scene, int64_t frame) {
             initialize_track_from_ref(t, ref, frame);
         }
         const Pattern& p = pattern_at(project_, t, ref.bank, ref.pattern);
-        duration = std::max(duration, pattern_duration_base_steps(p) * base_step_frames());
+        duration = std::max(duration, pattern_duration_base_steps(p, project_.tracks[static_cast<size_t>(t)]) * base_step_frames());
     }
 
     runtime_.scene_end_frame = frame + duration;
@@ -141,7 +142,7 @@ int64_t Sequencer::next_pattern_boundary(int track, int64_t currentFrame) const 
     }
 
     const int64_t duration = pattern_duration_base_steps(
-        pattern_at(project_, track, bank, pattern)) * base_step_frames();
+        pattern_at(project_, track, bank, pattern), project_.tracks[static_cast<size_t>(track)]) * base_step_frames();
     if (duration <= 0) return currentFrame;
     if (currentFrame < start) return start;
 
@@ -211,7 +212,6 @@ bool Sequencer::condition_passes(const Pattern& pattern, int step, uint64_t patt
 
 int Sequencer::authored_step_for(const Track& track, const Pattern& pattern, int ordinal,
                                   uint64_t patternRepeat, int trackId) const {
-    (void)track;
     const int length = pattern.clamped_length();
     const int i = std::clamp(ordinal, 0, length - 1);
     switch (pattern.direction) {
@@ -221,11 +221,10 @@ int Sequencer::authored_step_for(const Track& track, const Pattern& pattern, int
             return length - 1 - i;
         case songcore::SequencerDirection::PINGPONG: {
             if (length <= 1) return 0;
-            // The endpoint is shared by the two directions. A new ping-pong cycle therefore
-            // deliberately repeats the terminal step: 0,1,2,3 | 3,2,1,0 | 0,1,2,3.
-            // This keeps every authored step in every cycle and keeps the cycle exactly `length`
-            // step slots long, with no missing terminal note.
-            return (patternRepeat & 1u) == 0 ? i : (length - 1 - i);
+            // Each directional traversal contains the full authored pattern. The terminal step is
+            // therefore emitted twice at the turn: 0..15, 15..0 for a 16-step pattern. This is the
+            // PocketTracker/LGPT-style ping-pong timing and avoids shortening the reverse traversal.
+            return (patternRepeat & 1u) == 0u ? i : (length - 1 - i);
         }
         case songcore::SequencerDirection::RANDOM: {
             // Deterministic per track/pattern/cycle/ordinal. This keeps the audio schedule repeatable
@@ -274,7 +273,7 @@ void Sequencer::emit_next_step(int track, std::vector<ScheduledStep>& out) {
 
     const int ordinal = rt.step;
     const int authoredStep = authored_step_for(tr, p, ordinal, rt.pattern_repeat, track);
-    const int64_t stepFrames = pattern_step_frames(track);
+    const int64_t stepFrames = base_step_frames() * step_duration_multiplier(p, tr);
     const uint8_t waitPpqn = p.wait_ppqn[static_cast<size_t>(authoredStep)];
     // FMS defines Wait in PPQN units relative to the track rate: 3 PPQN = half a step and
     // 6 PPQN = one whole step. This is deliberately applied to the already-expanded track step

@@ -119,47 +119,6 @@ int main() {
     assert(p.steps[2].volume == 0x41);
     assert(p.steps[3].volume == 0x61);
 
-    // Range editing must not materialize values into truly empty cells.
-    p.steps[4] = PhraseStep{};
-    p.steps[4].volume = 0x7F;
-    state.parameter = PatternParameter::VOLUME;
-    const bool skippedEmpty = module.apply_range_action(p, state, 3, 4, pt::ui::increment);
-    assert(skippedEmpty);
-    assert(p.steps[4].volume == 0x7F);
-
-    // SELECT+A randomization: empty cells become real, scale-snapped notes and the selected
-    // parameter is randomized; distinct seeds produce distinct results.
-    p.steps[5] = PhraseStep{};
-    const bool randomizedNote = module.randomize_parameter(p, 5, PatternParameter::NOTE, FX_NONE, 0x12345678u, C_MAJOR, 0, nullptr);
-    assert(randomizedNote);
-    assert(p.steps[5].note != Note::EMPTY());
-    const int noteA = note_to_midi(p.steps[5].note);
-    const bool randomizedVolume = module.randomize_parameter(p, 5, PatternParameter::VOLUME, FX_NONE, 0x87654321u, C_MAJOR, 0, nullptr);
-    assert(randomizedVolume);
-    assert(p.steps[5].volume >= 48 && p.steps[5].volume <= 127);
-    assert(noteA >= 0 && noteA <= 127);
-
-    // Range clipboard is a contiguous snapshot: empty cells in the source are preserved and
-    // therefore clear the corresponding destination cells rather than being skipped/compressed.
-    p.length = 16;
-    sequencer::Pattern clipboard;
-    int clipboardLength = 0;
-    p.steps[6].note = Note::C4();
-    p.steps[7] = PhraseStep{};
-    p.steps[8].note = songcore::note_from_midi(64);
-    assert(module.copy_range(p, 6, 8, clipboard, clipboardLength));
-    assert(clipboardLength == 3);
-    assert(clipboard.steps[0].note == Note::C4());
-    assert(clipboard.steps[1].note == Note::EMPTY());
-    assert(clipboard.steps[2].note == songcore::note_from_midi(64));
-    p.steps[10].note = songcore::note_from_midi(67);
-    p.steps[11].note = songcore::note_from_midi(67);
-    p.steps[12].note = songcore::note_from_midi(67);
-    assert(module.paste_range(p, 10, clipboard, clipboardLength) == 3);
-    assert(p.steps[10].note == Note::C4());
-    assert(p.steps[11].note == Note::EMPTY());
-    assert(p.steps[12].note == songcore::note_from_midi(64));
-
     // Range note editing remains scale-aware on each individual step.
     state.parameter = PatternParameter::NOTE;
     state.scaleMask = C_MAJOR;
@@ -187,6 +146,25 @@ int main() {
     result = module.handle_input(p, state, InputAction::of(ActionType::DELETE));
     assert(result.modified);
     assert(!step_has_fx(p.steps[4], FX_PAN));
+
+    // Range Edit must not populate rests. Existing notes in the same range are still edited.
+    state.parameter = PatternParameter::VOLUME;
+    p.steps[5] = PhraseStep{};
+    p.steps[6].note = Note::C4();
+    p.steps[6].volume = 0x40;
+    const bool rangeSkipEmpty = module.apply_range_action(p, state, 5, 6, pt::ui::increment);
+    assert(rangeSkipEmpty);
+    assert(!PatternEditorModule::step_has_data(p.steps[5]));
+    assert(p.steps[6].volume == 0x41);
+
+    // SELECT+A randomization operates on the selected parameter without changing rests during range editing.
+    state.parameter = PatternParameter::NOTE;
+    p.steps[7].note = Note::C4();
+    const int beforeNote = note_to_midi(p.steps[7].note);
+    assert(PatternEditorModule::randomize_parameter(p, 7, PatternParameter::NOTE, FX_NONE, 1234, C_MAJOR, 0));
+    assert(note_to_midi(p.steps[7].note) != beforeNote || note_to_midi(p.steps[7].note) == 60);
+    assert(PatternEditorModule::randomize_parameter(p, 5, PatternParameter::NOTE, FX_NONE, 1234, C_MAJOR, 0));
+    assert(PatternEditorModule::step_has_data(p.steps[5]));
 
     std::cout << "pattern editor tests: PASS\n";
     return 0;

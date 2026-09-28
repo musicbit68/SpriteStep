@@ -69,12 +69,21 @@ inline Pattern& pattern_at(Project& project, int track, int bank, int pattern) {
         .patterns[static_cast<size_t>(pattern)];
 }
 
-inline int step_duration_multiplier(const Pattern& pattern) {
-    return std::clamp(static_cast<int>(pattern.step_duration_multiplier), 1, 8);
+inline int step_duration_multiplier(const Pattern& pattern, const Track& track) {
+    const int legacy = std::clamp(static_cast<int>(track.step_duration_multiplier), 1, 8);
+    const int value = std::clamp(static_cast<int>(pattern.step_duration_multiplier), 1, 8);
+    // A default pattern value is 1. The legacy track value is only used by callers loading an
+    // old in-memory project that has not gone through project_io migration yet.
+    return value == 1 && legacy != 1 ? legacy : value;
 }
 
-inline int64_t pattern_duration_base_steps(const Pattern& pattern) {
-    return static_cast<int64_t>(pattern.clamped_length()) * step_duration_multiplier(pattern);
+inline int traversal_cycle_steps(const Pattern& pattern) {
+    const int length = pattern.clamped_length();
+    return pattern.direction == songcore::SequencerDirection::PINGPONG ? length * 2 : length;
+}
+
+inline int64_t pattern_duration_base_steps(const Pattern& pattern, const Track& track) {
+    return static_cast<int64_t>(traversal_cycle_steps(pattern)) * step_duration_multiplier(pattern, track);
 }
 
 } // namespace sequencer

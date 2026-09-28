@@ -6,15 +6,13 @@ This directory is the first headless sequencing layer for the new 8-track Patter
 
 - Every Pattern contains 1–16 steps.
 - The base clock is SPRITESTEP's existing 16th-note `frames_per_step()` timing.
-- Each Pattern has its own step-duration multiplier:
+- A Track's displayed speed value is a step-duration multiplier:
   - `1` = one 16th note per pattern step
   - `2` = two 16th notes per pattern step
   - `3` = three 16th notes per pattern step
   - etc.
-- Values are stored on the Pattern, so Pattern 1 and Pattern 2 on the same track can have different speed/direction/shuffle settings.
 - Tracks share one absolute audio-frame timeline; they do not own independent clocks.
-- Pattern cycle duration is `pattern.length * pattern.step_duration_multiplier` base steps.
-- Ping-pong repeats the terminal step at each direction change: `0,1,...,15,15,14,...,0`.
+- Pattern cycle duration is `pattern.length * track.step_duration_multiplier` base steps.
 - Arrange scene duration is the longest effective pattern duration among its active tracks.
 - Shorter tracks repeat their patterns until the scene boundary.
 - Bank/Pattern cues are track-local and take effect at the end of the currently playing Pattern.

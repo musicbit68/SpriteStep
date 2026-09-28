@@ -1,7 +1,7 @@
 #include "ui/modules/pattern_editor.h"
 
 #include <algorithm>
-#include <vector>
+#include <cstdint>
 
 #include "songcore/effects.h"
 #include "songcore/scales.h"
@@ -38,12 +38,67 @@ int crush_parameter_value(const PhraseStep& step, PatternParameter p) {
 
 } // namespace
 
+
+namespace {
+uint32_t pattern_rng(uint32_t& x) { x ^= x << 13; x ^= x >> 17; x ^= x << 5; return x; }
+int random_byte(uint32_t& x, int lo, int hi) {
+    if (hi <= lo) return lo;
+    return lo + static_cast<int>(pattern_rng(x) % static_cast<uint32_t>(hi - lo + 1));
+}
+int random_scale_note(uint32_t& x, unsigned mask, int key) {
+    int notes[12]; int n = 0;
+    for (int i = 0; i < 12; ++i) if (mask & (1u << i)) notes[n++] = i;
+    if (!n) return random_byte(x, 36, 84);
+    const int octave = random_byte(x, 2, 6);
+    return octave * 12 + notes[random_byte(x, 0, n - 1)] + ((key % 12) + 12) % 12;
+}
+}
+
+bool PatternEditorModule::randomize_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p,
+                                                int selectedFxCode, uint32_t seed, unsigned scaleMask,
+                                                int scaleKey, const std::vector<int>* instrumentPool) {
+    if (stepIndex < 0 || stepIndex >= pattern.clamped_length()) return false;
+    auto& step = pattern.steps[static_cast<size_t>(stepIndex)];
+    uint32_t rng = seed ? seed : 0x9E3779B9u;
+    const bool occupied = step_has_data(step) || pattern.conditions[static_cast<size_t>(stepIndex)] != 0 ||
+                          pattern.wait_ppqn[static_cast<size_t>(stepIndex)] != 0 || pattern.trigless[static_cast<size_t>(stepIndex)] != 0;
+    if (!occupied) {
+        step.note = songcore::note_from_midi(random_scale_note(rng, scaleMask, scaleKey));
+    }
+    switch (p) {
+        case PatternParameter::NOTE: set_parameter(step, p, random_scale_note(rng, scaleMask, scaleKey)); return true;
+        case PatternParameter::INSTRUMENT:
+            if (instrumentPool && !instrumentPool->empty()) set_parameter(step, p, (*instrumentPool)[random_byte(rng, 0, static_cast<int>(instrumentPool->size()) - 1)]);
+            else set_parameter(step, p, random_byte(rng, 0, 127));
+            return true;
+        case PatternParameter::VOLUME: set_parameter(step, p, random_byte(rng, 48, 127)); return true;
+        case PatternParameter::PAN: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
+        case PatternParameter::SLIDE: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
+        case PatternParameter::CHANCE: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
+        case PatternParameter::ARPEGGIATOR: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
+        case PatternParameter::FILTER_FREQUENCY: set_parameter(step, p, random_byte(rng, 16, 240)); return true;
+        case PatternParameter::RESONANCE: set_parameter(step, p, random_byte(rng, 16, 240)); return true;
+        case PatternParameter::DRIVE: set_parameter(step, p, random_byte(rng, 0, 192)); return true;
+        case PatternParameter::CRUSH: set_parameter(step, p, random_byte(rng, 0, 8)); return true;
+        case PatternParameter::DOWNSAMPLE: set_parameter(step, p, random_byte(rng, 0, 8)); return true;
+        case PatternParameter::REVERSE: set_parameter(step, p, random_byte(rng, 0, 1)); return true;
+        case PatternParameter::REVERB: set_parameter(step, p, random_byte(rng, 0, 224)); return true;
+        case PatternParameter::DELAY: set_parameter(step, p, random_byte(rng, 0, 224)); return true;
+        case PatternParameter::MORE: {
+            if (selectedFxCode == songcore::FX_NONE) return false;
+            const int slot = ensure_fx_slot(step, selectedFxCode);
+            songcore::step_set_fx_value(step, slot, random_byte(rng, 0, std::max(0, songcore::effect_value_max(selectedFxCode))));
+            return true;
+        }
+        default: return false;
+    }
+}
+
 PatternParameter PatternEditorModule::footer_parameter(int index) {
     static constexpr PatternParameter params[] = {
         PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
         PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
-        PatternParameter::ARPEGGIATOR, PatternParameter::MORE, PatternParameter::DIRECTION,
-        PatternParameter::SHUFFLE
+        PatternParameter::ARPEGGIATOR, PatternParameter::MORE
     };
     const int i = std::clamp(index, 0, FOOTER_PARAMETER_COUNT - 1);
     return params[i];
@@ -70,8 +125,6 @@ const char* PatternEditorModule::parameter_label(PatternParameter p) {
         case PatternParameter::WAIT: return "WAI";
         case PatternParameter::TRIGLESS: return "TRG";
         case PatternParameter::MORE: return "MORE";
-        case PatternParameter::DIRECTION: return "DIR";
-        case PatternParameter::SHUFFLE: return "SHF";
     }
     return "";
 }
@@ -97,8 +150,6 @@ const char* PatternEditorModule::parameter_name(PatternParameter p) {
         case PatternParameter::WAIT: return "Wait";
         case PatternParameter::TRIGLESS: return "Trigless";
         case PatternParameter::MORE: return "All FX";
-        case PatternParameter::DIRECTION: return "Direction";
-        case PatternParameter::SHUFFLE: return "Shuffle";
     }
     return "";
 }
@@ -290,11 +341,8 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     c.fill_rect(x, y, WIDTH, HEIGHT, t.background);
 
     c.draw_text("PATTERN", x + 10, y + 5, t.textTitle, CHAR_SPACING, FONT_SCALE);
-    const std::string patternInfo = "TRA" + std::to_string(s.track + 1) +
-                                    " BAN" + std::to_string(s.bank) +
-                                    " PAT" + std::to_string(s.patternIndex);
-    const int infoX = x + (WIDTH - Canvas::text_width(patternInfo, CHAR_SPACING, FONT_SCALE)) / 2;
-    c.draw_text(patternInfo, infoX, y + 5, t.textParam, CHAR_SPACING, FONT_SCALE);
+    c.draw_text("TRA" + std::to_string(s.track + 1) + "  BAN" + hex1(s.bank) + "  PAT" + hex1(s.patternIndex),
+                x + 150, y + 5, t.textParam, CHAR_SPACING, FONT_SCALE);
 
     // Eight project tracks are rows. Each row displays the pattern selected for that track in Banks.
     // The step grid is deliberately fixed at 16 columns; the pattern's end marker is the small
@@ -305,8 +353,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
         const int pat  = s.patternIndices[static_cast<size_t>(track)];
         const bool selectedTrack = track == s.track;
 
-        const int multiplier = p ? std::clamp(static_cast<int>(p->step_duration_multiplier), 1, 8)
-                                  : std::max(1, s.stepDurationMultipliers[static_cast<size_t>(track)]);
+        const int multiplier = std::max(1, s.stepDurationMultipliers[static_cast<size_t>(track)]);
         c.draw_text(std::to_string(multiplier), x + 2, rowY + 8,
                     (selectedTrack && s.rateLengthHighlight) ? PATTERN_CURSOR_RED :
                         (selectedTrack ? cursor_mark_ink(t) : t.textParam), CHAR_SPACING, FONT_SCALE);
@@ -426,8 +473,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     static constexpr PatternParameter params[] = {
         PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
         PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
-        PatternParameter::ARPEGGIATOR, PatternParameter::MORE, PatternParameter::DIRECTION,
-        PatternParameter::SHUFFLE
+        PatternParameter::ARPEGGIATOR, PatternParameter::MORE
     };
     c.draw_text(parameter_name(s.parameter), x + 12, y + 337,
                 t.textParam, CHAR_SPACING, FONT_SCALE);
@@ -435,30 +481,18 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     for (PatternParameter p : params) {
         const std::string label = p == PatternParameter::MORE ? "ALL^" : parameter_label(p);
         const int w = std::max(30, Canvas::text_width(label, CHAR_SPACING, FONT_SCALE) + 12);
-        const bool selected = p == s.parameter;
+        const bool selected = p == s.parameter && s.headerControl == 0;
         if (selected) c.fill_rect(px - 3, y + BOTTOM_Y, w, 24, t.rowCursor);
         c.draw_text(label, px, y + BOTTOM_Y + 5,
                     selected ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
         px += w + 3;
     }
-
-    // Pattern-level playback controls live in the footer after ALL^.
-    const auto* currentPattern = s.patterns[static_cast<size_t>(s.track)];
-    const int dir = currentPattern ? static_cast<int>(currentPattern->direction) : s.direction;
-    const int shuffle = currentPattern ? static_cast<int>(currentPattern->shuffle) : s.shuffle;
-    const int dirX = px;
-    const std::string dirText = dir == 0 ? ">" : (dir == 1 ? "<>" : (dir == 2 ? "<" : "?"));
-    const int dirW = std::max(34, Canvas::text_width("DIR " + dirText, CHAR_SPACING, FONT_SCALE) + 12);
-    if (s.parameter == PatternParameter::DIRECTION) c.fill_rect(dirX - 3, y + BOTTOM_Y, dirW, 24, t.rowCursor);
-    c.draw_text("DIR " + dirText, dirX, y + BOTTOM_Y + 5,
-                s.parameter == PatternParameter::DIRECTION ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
-    px += dirW + 3;
-
-    const std::string shuffleText = "SHF " + hex2(shuffle);
-    const int shfW = std::max(50, Canvas::text_width(shuffleText, CHAR_SPACING, FONT_SCALE) + 12);
-    if (s.parameter == PatternParameter::SHUFFLE) c.fill_rect(px - 3, y + BOTTOM_Y, shfW, 24, t.rowCursor);
-    c.draw_text(shuffleText, px, y + BOTTOM_Y + 5,
-                s.parameter == PatternParameter::SHUFFLE ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
+    const int dirX = x + 430;
+    const int shfX = x + 500;
+    if (s.headerControl == 1) c.fill_rect(dirX - 4, y + BOTTOM_Y, 54, 24, t.rowCursor);
+    if (s.headerControl == 2) c.fill_rect(shfX - 4, y + BOTTOM_Y, 70, 24, t.rowCursor);
+    c.draw_text("DIR", dirX, y + BOTTOM_Y + 5, s.headerControl == 1 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
+    c.draw_text("SHF " + hex2(s.shuffle), shfX, y + BOTTOM_Y + 5, s.headerControl == 2 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
 
 }
 
@@ -505,147 +539,6 @@ CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) c
     }
 }
 
-namespace {
-uint32_t random_step_value(uint32_t& state) {
-    state ^= state << 13;
-    state ^= state >> 17;
-    state ^= state << 5;
-    return state;
-}
-
-int random_in_range(uint32_t& state, int minValue, int maxValue) {
-    if (maxValue <= minValue) return minValue;
-    return minValue + static_cast<int>(random_step_value(state) % static_cast<uint32_t>(maxValue - minValue + 1));
-}
-
-int random_scale_midi(uint32_t& state, unsigned scaleMask, int scaleKey) {
-    const int raw = random_in_range(state, 48, 83);
-    for (int d = 0; d <= 12; ++d) {
-        const int up = raw + d;
-        const int upDegree = ((up - scaleKey) % 12 + 12) % 12;
-        if (up <= 127 && (scaleMask & (1u << upDegree))) return up;
-        if (d == 0) continue;
-        const int down = raw - d;
-        const int downDegree = ((down - scaleKey) % 12 + 12) % 12;
-        if (down >= 0 && (scaleMask & (1u << downDegree))) return down;
-    }
-    return raw;
-}
-}
-
-bool PatternEditorModule::randomize_parameter(sequencer::Pattern& pattern, int stepIndex,
-                                                PatternParameter p, int selectedFxCode,
-                                                uint32_t seed, unsigned scaleMask, int scaleKey,
-                                                const std::vector<int>* instrumentPool) {
-    if (stepIndex < 0 || stepIndex >= pattern.clamped_length()) return false;
-    uint32_t state = seed ? seed : 0x9E3779B9u;
-    auto& step = pattern.steps[static_cast<size_t>(stepIndex)];
-
-    auto random_fx_value = [&](int code) {
-        switch (code) {
-            case songcore::FX_LAT:    return random_in_range(state, 1, 32);
-            case songcore::FX_REPEAT: return random_in_range(state, 0x11, 0x44);
-            case songcore::FX_BCK:    return random_in_range(state, 0, 1);
-            case songcore::FX_CHA:    return random_in_range(state, 32, 255);
-            case songcore::FX_DRV:    return random_in_range(state, 0, 192);
-            case songcore::FX_CRU:    return random_in_range(state, 0, 8) * 0x11;
-            case songcore::FX_CUT:
-            case songcore::FX_RES:
-            case songcore::FX_LPF:
-            case songcore::FX_HPF:
-            case songcore::FX_BPF:    return random_in_range(state, 16, 240);
-            case songcore::FX_RSEND:
-            case songcore::FX_DSEND:  return random_in_range(state, 0, 224);
-            case songcore::FX_PBN:
-            case songcore::FX_PVB:
-            case songcore::FX_PVX:
-            case songcore::FX_PIT:
-            case songcore::FX_FIN:    return random_in_range(state, 32, 224);
-            case songcore::FX_TSX:    return random_in_range(state, 1, 3) == 1 ? 0x01 : (random_in_range(state, 0, 1) ? 0xFF : 0x02);
-            default:                  return random_in_range(state, 0, songcore::effect_value_max(code));
-        }
-    };
-
-    if (p == PatternParameter::MORE) {
-        if (selectedFxCode == songcore::FX_NONE) return false;
-        const int slot = ensure_fx_slot(step, selectedFxCode);
-        const int before = songcore::step_fx_value(step, slot);
-        const int value = random_fx_value(selectedFxCode);
-        songcore::step_set_fx_value(step, slot, value);
-        return before != value;
-    }
-
-    // A randomized parameter on an empty cell needs a note to make the result musically observable,
-    // matching the normal Pattern-page A edit behavior.
-    if (step.note == songcore::Note::EMPTY())
-        step.note = songcore::note_from_midi(random_scale_midi(state, scaleMask, scaleKey));
-
-    switch (p) {
-        case PatternParameter::NOTE:
-            set_parameter(step, p, random_scale_midi(state, scaleMask, scaleKey));
-            return true;
-        case PatternParameter::INSTRUMENT:
-            if (!instrumentPool || instrumentPool->empty()) return false;
-            set_parameter(step, p, (*instrumentPool)[static_cast<size_t>(random_step_value(state) % instrumentPool->size())]);
-            return true;
-        case PatternParameter::VOLUME:
-            set_parameter(step, p, random_in_range(state, 48, 127));
-            return true;
-        default:
-            break;
-    }
-
-    if (!parameter_editable(p)) return false;
-    const int code = fx_code(p);
-    if (code == songcore::FX_NONE) return false;
-    const int slot = ensure_fx_slot(step, code);
-    const int before = songcore::step_fx_value(step, slot);
-    const int value = random_fx_value(code);
-    if (p == PatternParameter::CRUSH || p == PatternParameter::DOWNSAMPLE) {
-        int packed = songcore::step_fx_value(step, slot);
-        if (p == PatternParameter::CRUSH) packed = (packed & 0x0F) | ((value & 0x0F) << 4);
-        else packed = (packed & 0xF0) | (value & 0x0F);
-        songcore::step_set_fx_value(step, slot, packed);
-        return before != packed;
-    }
-    songcore::step_set_fx_value(step, slot, value);
-    return before != value;
-}
-
-
-bool PatternEditorModule::copy_range(const sequencer::Pattern& source, int startStep, int endStep,
-                                      sequencer::Pattern& clipboard, int& clipboardLength) {
-    const int first = std::clamp(std::min(startStep, endStep), 0, source.clamped_length() - 1);
-    const int last = std::clamp(std::max(startStep, endStep), 0, source.clamped_length() - 1);
-    clipboard = sequencer::Pattern{};
-    clipboardLength = last - first + 1;
-    for (int i = 0; i < clipboardLength; ++i) {
-        const size_t src = static_cast<size_t>(first + i);
-        const size_t dst = static_cast<size_t>(i);
-        clipboard.steps[dst] = source.steps[src];
-        clipboard.conditions[dst] = source.conditions[src];
-        clipboard.wait_ppqn[dst] = source.wait_ppqn[src];
-        clipboard.trigless[dst] = source.trigless[src];
-    }
-    return clipboardLength > 0;
-}
-
-int PatternEditorModule::paste_range(sequencer::Pattern& destination, int destStart,
-                                     const sequencer::Pattern& clipboard, int clipboardLength) {
-    if (clipboardLength <= 0) return 0;
-    const int start = std::clamp(destStart, 0, destination.clamped_length() - 1);
-    const int count = std::min(clipboardLength, destination.clamped_length() - start);
-    for (int i = 0; i < count; ++i) {
-        const size_t src = static_cast<size_t>(i);
-        const size_t dst = static_cast<size_t>(start + i);
-        destination.steps[dst] = clipboard.steps[src];
-        destination.conditions[dst] = clipboard.conditions[src];
-        destination.wait_ppqn[dst] = clipboard.wait_ppqn[src];
-        destination.trigless[dst] = clipboard.trigless[src];
-    }
-    return count;
-}
-
 bool PatternEditorModule::apply_range_action(sequencer::Pattern& pattern, PatternEditorState& state,
                                                int startStep, int endStep,
                                                InputAction (*fn)(const CursorContext&)) const {
@@ -653,11 +546,9 @@ bool PatternEditorModule::apply_range_action(sequencer::Pattern& pattern, Patter
     const int last = std::clamp(std::max(startStep, endStep), 0, pattern.clamped_length() - 1);
     bool changed = false;
     for (int step = first; step <= last; ++step) {
-        const size_t i = static_cast<size_t>(step);
-        const bool occupied = step_has_data(pattern.steps[i]) || pattern.conditions[i] != 0 ||
-                              pattern.wait_ppqn[i] != 0 || pattern.trigless[i] != 0;
-        // Range value edits operate only on authored/occupied cells. An empty grid cell must stay
-        // empty; otherwise A+direction over a range silently creates notes/FX in rests.
+        const auto& candidate = pattern.steps[static_cast<size_t>(step)];
+        const bool occupied = step_has_data(candidate) || pattern.conditions[static_cast<size_t>(step)] != 0 ||
+                              pattern.wait_ppqn[static_cast<size_t>(step)] != 0 || pattern.trigless[static_cast<size_t>(step)] != 0;
         if (!occupied) continue;
         state.cursorStep = step;
         const InputAction action = fn(cursor_context(state));

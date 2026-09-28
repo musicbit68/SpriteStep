@@ -196,14 +196,11 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                     ps.banks[static_cast<size_t>(tix)] = bank;
                     ps.patternIndices[static_cast<size_t>(tix)] = pat;
                     ps.stepDurationMultipliers[static_cast<size_t>(tix)] =
-                        p.sequencer.tracks[static_cast<size_t>(tix)]
-                            .banks[static_cast<size_t>(bank)]
-                            .patterns[static_cast<size_t>(pat)]
-                            .step_duration_multiplier;
+                        p.sequencer.tracks[static_cast<size_t>(tix)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].step_duration_multiplier;
                 }
                 ps.track = std::clamp(s.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
-                ps.bank = ps.banks[static_cast<size_t>(ps.track)];
-                ps.patternIndex = ps.patternIndices[static_cast<size_t>(ps.track)];
+                ps.bank = s.seqBank;
+                ps.patternIndex = s.seqSelectedPatterns[static_cast<size_t>(ps.track)];
                 ps.playhead = s.playheads[ps.track];
                 std::copy(std::begin(s.playheads), std::end(s.playheads), std::begin(ps.playheads));
                 ps.cursorStep = s.seqPatternCursorStep;
@@ -212,12 +209,12 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.rangeActive = s.seqPatternRangeActive;
                 ps.rangeStart = s.seqPatternRangeAnchor;
                 ps.rangeEnd = s.seqPatternRangeEnd;
+                ps.headerControl = s.seqPatternHeaderControl;
                 const auto& projectScale = songcore::scale_at(p, 0);
                 ps.scaleMask = songcore::scale_mask(projectScale);
                 ps.scaleKey = p.scaleKey;
-                const auto* currentPattern = ps.patterns[static_cast<size_t>(ps.track)];
-                ps.direction = currentPattern ? static_cast<int>(currentPattern->direction) : 0;
-                ps.shuffle = currentPattern ? currentPattern->shuffle : 0;
+                ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(ps.track)].banks[static_cast<size_t>(ps.bank)].patterns[static_cast<size_t>(ps.patternIndex)].direction);
+                ps.shuffle = p.sequencer.tracks[static_cast<size_t>(ps.track)].banks[static_cast<size_t>(ps.bank)].patterns[static_cast<size_t>(ps.patternIndex)].shuffle;
                 ps.theme = t;
                 ps.isPlaying = s.isPlaying;
                 pattern_.draw(c, moduleX, EDITOR_Y, ps);

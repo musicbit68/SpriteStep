@@ -104,10 +104,11 @@ inline Phrase parse_phrase(const json& j, int index) {
 
 inline SequencerPattern parse_sequencer_pattern(const json& j) {
     SequencerPattern p;
-    p.length = static_cast<uint8_t>(get_int(j, "length", p.length));
+    p.length = static_cast<uint8_t>(std::clamp(get_int(j, "length", p.length), 1, SEQUENCER_MAX_STEPS));
     p.step_duration_multiplier = static_cast<uint8_t>(std::clamp(get_int(j, "stepDurationMultiplier", p.step_duration_multiplier), 1, 8));
     p.shuffle = static_cast<uint8_t>(std::clamp(get_int(j, "shuffle", p.shuffle), 0, 255));
-    p.direction = static_cast<SequencerDirection>(std::clamp(get_int(j, "direction", static_cast<int>(p.direction)), 0, 3));
+    const int dir = get_int(j, "direction", static_cast<int>(p.direction));
+    p.direction = static_cast<SequencerDirection>(std::clamp(dir, 0, 3));
     auto it = j.find("steps");
     if (it != j.end() && it->is_array()) {
         for (size_t i = 0; i < p.steps.size() && i < it->size(); ++i) {
@@ -140,16 +141,17 @@ inline SequencerData parse_sequencer(const json& j) {
         for (size_t ti = 0; ti < d.tracks.size() && ti < tracks->size(); ++ti) {
             const json& tj = (*tracks)[ti];
             if (!tj.is_object()) continue;
-            // Version-2 projects stored these three values on the track. Keep those projects
-            // playable by using the legacy values as defaults for patterns that do not carry the
-            // new pattern-level fields. New files always write the values with each pattern.
-            const bool hasLegacyRate = tj.find("stepDurationMultiplier") != tj.end();
-            const bool hasLegacyDirection = tj.find("direction") != tj.end();
-            const bool hasLegacyShuffle = tj.find("shuffle") != tj.end();
-            const uint8_t legacyRate = static_cast<uint8_t>(std::clamp(get_int(tj, "stepDurationMultiplier", 1), 1, 8));
-            const auto legacyDirection = static_cast<SequencerDirection>(std::clamp(get_int(tj, "direction", 0), 0, 3));
-            const uint8_t legacyShuffle = static_cast<uint8_t>(std::clamp(get_int(tj, "shuffle", 0), 0, 255));
+            const bool legacyRate = tj.find("stepDurationMultiplier") != tj.end();
+            const bool legacyDirection = tj.find("direction") != tj.end();
+            const bool legacyShuffle = tj.find("shuffle") != tj.end();
+            d.tracks[ti].step_duration_multiplier = static_cast<uint8_t>(
+                std::clamp(get_int(tj, "stepDurationMultiplier", d.tracks[ti].step_duration_multiplier), 1, 8));
+            d.tracks[ti].shuffle = static_cast<uint8_t>(std::clamp(
+                get_int(tj, "shuffle", d.tracks[ti].shuffle), 0, 255));
+            const int dir = get_int(tj, "direction", static_cast<int>(d.tracks[ti].direction));
+            d.tracks[ti].direction = static_cast<SequencerDirection>(std::clamp(dir, 0, 3));
             auto patterns = tj.find("patterns");
+            const bool noPatternEntries = patterns == tj.end() || !patterns->is_array() || patterns->empty();
             if (patterns == tj.end() || !patterns->is_array()) continue;
             for (const auto& pj : *patterns) {
                 if (!pj.is_object()) continue;
@@ -157,10 +159,32 @@ inline SequencerData parse_sequencer(const json& j) {
                 int pattern = get_int(pj, "pattern", -1);
                 if (bank < 0 || bank >= SEQUENCER_BANKS || pattern < 0 || pattern >= SEQUENCER_PATTERNS) continue;
                 auto parsed = parse_sequencer_pattern(pj);
-                if (hasLegacyRate && pj.find("stepDurationMultiplier") == pj.end()) parsed.step_duration_multiplier = legacyRate;
-                if (hasLegacyDirection && pj.find("direction") == pj.end()) parsed.direction = legacyDirection;
-                if (hasLegacyShuffle && pj.find("shuffle") == pj.end()) parsed.shuffle = legacyShuffle;
+                if (pj.find("stepDurationMultiplier") == pj.end())
+                    parsed.step_duration_multiplier = d.tracks[ti].step_duration_multiplier;
+                if (pj.find("direction") == pj.end())
+                    parsed.direction = d.tracks[ti].direction;
+                if (pj.find("shuffle") == pj.end())
+                    parsed.shuffle = d.tracks[ti].shuffle;
                 d.tracks[ti].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pattern)] = parsed;
+            }
+            // Old files stored these controls once on the track. If there were no pattern entries,
+            // preserve that meaning by applying the legacy values to every pattern before clearing
+            // the compatibility fields; if pattern entries existed, each parser above already used
+            // the legacy values only where the new per-pattern field was absent.
+            if ((legacyRate || legacyDirection || legacyShuffle) && noPatternEntries) {
+                for (auto& bank : d.tracks[ti].banks) {
+                    for (auto& pattern : bank.patterns) {
+                        if (legacyRate && pattern.step_duration_multiplier == 1)
+                            pattern.step_duration_multiplier = d.tracks[ti].step_duration_multiplier;
+                        if (legacyDirection && pattern.direction == SequencerDirection::FORWARD)
+                            pattern.direction = d.tracks[ti].direction;
+                        if (legacyShuffle && pattern.shuffle == 0)
+                            pattern.shuffle = d.tracks[ti].shuffle;
+                    }
+                }
+                d.tracks[ti].step_duration_multiplier = 1;
+                d.tracks[ti].direction = SequencerDirection::FORWARD;
+                d.tracks[ti].shuffle = 0;
             }
         }
     }
@@ -744,6 +768,9 @@ inline bool sequencer_pattern_is_default(const SequencerPattern& p) {
 inline bool sequencer_is_default(const SequencerData& d) {
     if (!d.scenes.empty()) return false;
     for (const auto& t : d.tracks) {
+        if (t.step_duration_multiplier != 1) return false;
+        if (t.direction != SequencerDirection::FORWARD) return false;
+        if (t.shuffle != 0) return false;
         for (const auto& b : t.banks)
             for (const auto& p : b.patterns)
                 if (!sequencer_pattern_is_default(p)) return false;

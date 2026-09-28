@@ -1,10 +1,10 @@
 #pragma once
 
 #include <array>
-#include <functional>
-#include <string>
 #include <cstdint>
 #include <vector>
+#include <functional>
+#include <string>
 
 #include "sequencer/sequencer_model.h"
 #include "ui/canvas.h"
@@ -34,9 +34,7 @@ enum class PatternParameter {
     CONDITION,
     WAIT,
     TRIGLESS,
-    MORE,
-    DIRECTION,
-    SHUFFLE
+    MORE
 };
 
 struct PatternEditorState {
@@ -57,6 +55,9 @@ struct PatternEditorState {
     bool rangeActive = false;
     int rangeStart = 0;
     int rangeEnd = 0;
+    // 0 = grid, 1 = direction icon, 2 = shuffle icon. This is a small header focus, reached
+    // by D-pad UP from Track 1 and returned from with D-pad DOWN.
+    int headerControl = 0;
     int direction = 0;
     int shuffle = 0;
     unsigned scaleMask = 0x0FFFu;
@@ -97,20 +98,12 @@ public:
     static void clear_parameter(sequencer::PatternStep& step, PatternParameter p);
     static int ensure_fx_slot(sequencer::PatternStep& step, int code);
     static void clear_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p);
-    // Range clipboard helpers copy/paste a contiguous span, including authored empty cells. The
-    // pattern length itself is never copied, so a paste cannot silently resize the destination.
-    static bool copy_range(const sequencer::Pattern& source, int startStep, int endStep,
-                           sequencer::Pattern& clipboard, int& clipboardLength);
-    static int paste_range(sequencer::Pattern& destination, int destStart,
-                           const sequencer::Pattern& clipboard, int clipboardLength);
-    // Randomize only the selected Pattern parameter. The seed is supplied by the UI gesture so a
-    // repeated SELECT+A produces a fresh result without relying on libc/global RNG state.
+    static std::string parameter_text(const sequencer::PatternStep& step, PatternParameter p);
+    static PatternParameter footer_parameter(int index);
+    static constexpr int FOOTER_PARAMETER_COUNT = 8;
     static bool randomize_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p,
                                     int selectedFxCode, uint32_t seed, unsigned scaleMask = 0x0FFFu,
                                     int scaleKey = 0, const std::vector<int>* instrumentPool = nullptr);
-    static std::string parameter_text(const sequencer::PatternStep& step, PatternParameter p);
-    static PatternParameter footer_parameter(int index);
-    static constexpr int FOOTER_PARAMETER_COUNT = 10;
 
 private:
     static const char* parameter_label(PatternParameter p);
