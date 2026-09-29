@@ -87,6 +87,16 @@ public:
      *                       button's press highlight — a change OUTSIDE the 640×480 canvas the gate
      *                       compares — would be skipped, the C7 blind-channel shape one panel over.
      */
+    /**
+     * Show the startup splash directly on the SDL renderer. The PNG is decoded once and drawn
+     * cover-style into the current output, preserving aspect ratio and cropping only the outer
+     * black/background margins when the display is not the artwork's aspect ratio.
+     *
+     * This is intentionally independent of the 640x480 Canvas: it can be called before the UI,
+     * project and media have finished initializing, then the first normal present replaces it.
+     */
+    bool present_splash();
+
     bool present(const pt::ui::Canvas& canvas, uint32_t letterboxArgb,
                  const std::function<void(SDL_Renderer*)>& overlay = {}, uint64_t overlaySig = 0,
                  uint32_t modalScrimArgb = 0);

@@ -252,6 +252,17 @@ int run(const AppConfig& cfg) {
     AudioBackend& audio      = *cfg.audio;
     ui::FileSystem& filesystem = *cfg.filesystem;
 
+    // Open the display BEFORE constructing/loading the project. This lets the startup artwork stay
+    // visible during the expensive part of boot (project parsing and especially SF2/sample loading)
+    // instead of leaving the RG40XXH on a blank/black screen until all media is ready. The first normal
+    // present later in this function replaces the splash automatically.
+    SdlVideo video;
+    if (!video.open("SPRITESTEP", ui::DESIGN_W, ui::DESIGN_H, /*fullscreen=*/false,
+                    /*resizable=*/cfg.windowed)) {
+        return 1;
+    }
+    video.present_splash();
+
     // The engine asks for its stream back without knowing what a stream is. Unwired at teardown
     // below, before the backend is closed — a callback firing into a dead lambda is the one ordering
     // mistake this pair can make.
@@ -323,6 +334,7 @@ int run(const AppConfig& cfg) {
     if (hasProject) {
         if (!host.push_project(cfg.projectBlob)) {
             std::fprintf(stderr, "%s did not parse as a .ptp\n", cfg.projectPath.c_str());
+            video.close();
             return 1;
         }
 
@@ -392,12 +404,6 @@ int run(const AppConfig& cfg) {
         const std::string projects = filesystem.projects_directory();
         std::printf("files:   projects: %s (%zu entries)\n", projects.c_str(),
                     filesystem.list_files(projects).size());
-    }
-
-    SdlVideo video;
-    if (!video.open("SPRITESTEP", ui::DESIGN_W, ui::DESIGN_H, /*fullscreen=*/false,
-                    /*resizable=*/cfg.windowed)) {
-        return 1;
     }
 
     SdlInput input;

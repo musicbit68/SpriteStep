@@ -13,10 +13,13 @@
 // no window chrome and its own launcher icon — so both are compiled out, and with them the ~27 KB of
 // embedded PNG. What is left is desktop Linux (and PortMaster, where it is a harmless fullscreen
 // no-op): a bare ELF with no companion asset file, so the bytes have to ride inside the binary.
-#if !defined(_WIN32) && !defined(__ANDROID__)
 #include "image.h"
+
+#if !defined(_WIN32) && !defined(__ANDROID__)
 #include "window_icon.h"
 #endif
+
+#include "splash_image.h"
 
 using pt::ui::Canvas;
 using pt::ui::DESIGN_H;
@@ -179,6 +182,53 @@ void SdlVideo::describe() const {
         std::printf("video:   letterbox: %dpx horizontal, %dpx vertical bars\n", (outW - d.w) / 2,
                     (outH - d.h) / 2);
     }
+}
+
+bool SdlVideo::present_splash() {
+    const ptshell::Image image = ptshell::decode_png(ptshell::kSplashPng, ptshell::kSplashPngLen);
+    if (!image.ok() || !renderer_) {
+        std::fprintf(stderr, "splash: PNG decode failed\n");
+        return false;
+    }
+
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    SDL_Texture* texture = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_ARGB8888,
+                                              SDL_TEXTUREACCESS_STATIC, image.width, image.height);
+    if (!texture) {
+        std::fprintf(stderr, "splash: SDL_CreateTexture failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    if (SDL_UpdateTexture(texture, nullptr, image.pixels.data(), image.width * static_cast<int>(sizeof(std::uint32_t))) != 0) {
+        std::fprintf(stderr, "splash: SDL_UpdateTexture failed: %s\n", SDL_GetError());
+        SDL_DestroyTexture(texture);
+        return false;
+    }
+
+    int outW = 0, outH = 0;
+    SDL_GetRendererOutputSize(renderer_, &outW, &outH);
+    if (outW <= 0 || outH <= 0) {
+        SDL_DestroyTexture(texture);
+        return false;
+    }
+
+    // Cover the whole display without distorting the artwork. The supplied artwork is 3:2 while
+    // the tracker's design/output is normally 4:3, so this intentionally trims the outer black
+    // margins at the sides rather than adding letterbox bars around the splash.
+    const double scale = std::max(static_cast<double>(outW) / image.width,
+                                  static_cast<double>(outH) / image.height);
+    const int drawW = std::max(1, static_cast<int>(std::lround(image.width * scale)));
+    const int drawH = std::max(1, static_cast<int>(std::lround(image.height * scale)));
+    const SDL_Rect dst{(outW - drawW) / 2, (outH - drawH) / 2, drawW, drawH};
+
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderClear(renderer_);
+    SDL_RenderCopy(renderer_, texture, nullptr, &dst);
+    SDL_RenderPresent(renderer_);
+    SDL_DestroyTexture(texture);
+
+    std::printf("splash:  startup artwork shown (%dx%d)\n", image.width, image.height);
+    return true;
 }
 
 bool SdlVideo::create_texture() {
