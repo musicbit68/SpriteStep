@@ -142,7 +142,7 @@ inline NavResult navigate_right(const NavState& s) {
         return {ScreenType::INST_POOL, 3};
 
     if (s.currentScreen == ScreenType::INST_POOL)
-        return {ScreenType::INSTRUMENT, 3};
+        return {ScreenType::INST_POOL, 3};
 
     if (is_main_row(s.currentScreen)) {
         return {main_screen_for_column(std::min(4, col + 1)), std::min(4, col + 1)};

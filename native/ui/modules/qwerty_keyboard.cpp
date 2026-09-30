@@ -191,7 +191,7 @@ void QwertyKeyboardOverlay::draw(Canvas& c, const QwertyKeyboardState& s, const 
     // 470×228. The border grows outward from it (helpers.h), so these are the fill, not the outside
     // edge, and the keys keep their own 10-column grid inside untouched.
     constexpr int BOXW = 470;
-    constexpr int BOXH = 252;
+    constexpr int BOXH = 250;
     constexpr int BOXX = (DESIGN_W - BOXW) / 2;
     constexpr int BOXY = (DESIGN_H - BOXH) / 2;
     constexpr int INNERX = BOXX + 5;
@@ -309,13 +309,15 @@ void QwertyKeyboardOverlay::draw(Canvas& c, const QwertyKeyboardState& s, const 
                     cursor ? cursor_cell_ink(t) : t.textParam, CS, AFS);
     }
 
-    // Small usage hint below the action row.  This is deliberately outside the keyboard grid so it
-    // remains visible regardless of which naming field opened the overlay.
+    // Small non-interactive hint for the alternate keyboard layout. R+UP/DOWN switches between
+    // letters and numbers/symbols; keep the hint directly beneath the action row so it is visible
+    // without taking space away from the key grid.
     constexpr int HINT_FS = 2;
-    constexpr int HINT_CHARW = 5 * HINT_FS + CS;
-    const char* hint = "R + UP/DOWN FOR NUMBERS";
-    const int hintW = static_cast<int>(std::char_traits<char>::length(hint)) * HINT_CHARW;
-    c.draw_text(hint, BOXX + (BOXW - hintW) / 2, actionRowY + CELLH + 4, t.textParam, CS, HINT_FS);
+    constexpr int HINT_CS = 2;
+    const std::string hint = "R + UP/DOWN FOR NUMBERS";
+    const int hintW = Canvas::text_width(hint, HINT_CS, HINT_FS);
+    c.draw_text(hint, BOXX + (BOXW - hintW) / 2, actionRowY + CELLH + 3,
+                t.textParam, HINT_CS, HINT_FS);
 }
 
 }  // namespace pt::ui

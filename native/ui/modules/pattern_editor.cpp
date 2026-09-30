@@ -6,6 +6,7 @@
 #include "songcore/effects.h"
 #include "songcore/scales.h"
 #include "ui/helpers.h"
+#include "ui/fx_helper.h"
 #include "ui/matrix_geometry.h"
 
 namespace pt::ui {
@@ -45,6 +46,12 @@ int random_byte(uint32_t& x, int lo, int hi) {
     if (hi <= lo) return lo;
     return lo + static_cast<int>(pattern_rng(x) % static_cast<uint32_t>(hi - lo + 1));
 }
+int random_byte_different(uint32_t& x, int current, int lo, int hi) {
+    if (hi <= lo) return lo;
+    int value = random_byte(x, lo, hi);
+    if (value == current) value = current < hi ? current + 1 : lo;
+    return value;
+}
 int random_scale_note(uint32_t& x, unsigned mask, int key) {
     int notes[12]; int n = 0;
     for (int i = 0; i < 12; ++i) if (mask & (1u << i)) notes[n++] = i;
@@ -66,28 +73,52 @@ bool PatternEditorModule::randomize_parameter(sequencer::Pattern& pattern, int s
         step.note = songcore::note_from_midi(random_scale_note(rng, scaleMask, scaleKey));
     }
     switch (p) {
-        case PatternParameter::NOTE: set_parameter(step, p, random_scale_note(rng, scaleMask, scaleKey)); return true;
-        case PatternParameter::INSTRUMENT:
-            if (instrumentPool && !instrumentPool->empty()) set_parameter(step, p, (*instrumentPool)[random_byte(rng, 0, static_cast<int>(instrumentPool->size()) - 1)]);
-            else set_parameter(step, p, random_byte(rng, 0, 127));
+        case PatternParameter::NOTE: {
+            const int current = step.note == songcore::Note::EMPTY() ? -1 : songcore::note_to_midi(step.note);
+            int value = random_scale_note(rng, scaleMask, scaleKey);
+            for (int tries = 0; tries < 8 && value == current; ++tries) value = random_scale_note(rng, scaleMask, scaleKey);
+            if (value == current && current >= 0) value = current < 127 ? current + 1 : current - 1;
+            set_parameter(step, p, value);
             return true;
-        case PatternParameter::VOLUME: set_parameter(step, p, random_byte(rng, 48, 127)); return true;
-        case PatternParameter::PAN: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
-        case PatternParameter::SLIDE: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
-        case PatternParameter::CHANCE: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
-        case PatternParameter::ARPEGGIATOR: set_parameter(step, p, random_byte(rng, 0, 255)); return true;
-        case PatternParameter::FILTER_FREQUENCY: set_parameter(step, p, random_byte(rng, 16, 240)); return true;
-        case PatternParameter::RESONANCE: set_parameter(step, p, random_byte(rng, 16, 240)); return true;
-        case PatternParameter::DRIVE: set_parameter(step, p, random_byte(rng, 0, 192)); return true;
-        case PatternParameter::CRUSH: set_parameter(step, p, random_byte(rng, 0, 8)); return true;
-        case PatternParameter::DOWNSAMPLE: set_parameter(step, p, random_byte(rng, 0, 8)); return true;
-        case PatternParameter::REVERSE: set_parameter(step, p, random_byte(rng, 0, 1)); return true;
-        case PatternParameter::REVERB: set_parameter(step, p, random_byte(rng, 0, 224)); return true;
-        case PatternParameter::DELAY: set_parameter(step, p, random_byte(rng, 0, 224)); return true;
+        }
+        case PatternParameter::INSTRUMENT:
+            if (instrumentPool && !instrumentPool->empty()) {
+                const int current = step.instrument;
+                int value = (*instrumentPool)[random_byte(rng, 0, static_cast<int>(instrumentPool->size()) - 1)];
+                for (int tries = 0; tries < 8 && value == current && instrumentPool->size() > 1; ++tries)
+                    value = (*instrumentPool)[random_byte(rng, 0, static_cast<int>(instrumentPool->size()) - 1)];
+                set_parameter(step, p, value);
+            } else {
+                set_parameter(step, p, random_byte_different(rng, step.instrument, 0, 127));
+            }
+            return true;
+        case PatternParameter::VOLUME: set_parameter(step, p, random_byte_different(rng, step.volume, 48, 127)); return true;
+        case PatternParameter::PAN: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 255)); return true;
+        case PatternParameter::SLIDE: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 255)); return true;
+        case PatternParameter::CHANCE: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 255)); return true;
+        case PatternParameter::ARPEGGIATOR: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 255)); return true;
+        case PatternParameter::FILTER_FREQUENCY: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 16, 240)); return true;
+        case PatternParameter::RESONANCE: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 16, 240)); return true;
+        case PatternParameter::DRIVE: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 192)); return true;
+        case PatternParameter::CRUSH: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 8)); return true;
+        case PatternParameter::DOWNSAMPLE: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 8)); return true;
+        case PatternParameter::REVERSE: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 1)); return true;
+        case PatternParameter::REVERB: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 224)); return true;
+        case PatternParameter::DELAY: set_parameter(step, p, random_byte_different(rng, parameter_value(step, p), 0, 224)); return true;
         case PatternParameter::MORE: {
             if (selectedFxCode == songcore::FX_NONE) return false;
+            if (selectedFxCode == FX_PATTERN_INST) {
+                step.instrument = static_cast<uint8_t>(random_byte_different(rng, step.instrument, 0, 127));
+                return true;
+            }
+            if (selectedFxCode == FX_PATTERN_VOL || selectedFxCode == songcore::FX_VOLUME) {
+                step.volume = static_cast<uint8_t>(random_byte_different(rng, step.volume, 48, 127));
+                return true;
+            }
             const int slot = ensure_fx_slot(step, selectedFxCode);
-            songcore::step_set_fx_value(step, slot, random_byte(rng, 0, std::max(0, songcore::effect_value_max(selectedFxCode))));
+            const int maxValue = std::max(0, songcore::effect_value_max(selectedFxCode));
+            const int current = songcore::step_fx_value(step, slot);
+            songcore::step_set_fx_value(step, slot, random_byte_different(rng, current, 0, maxValue));
             return true;
         }
         default: return false;
@@ -341,7 +372,7 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     c.fill_rect(x, y, WIDTH, HEIGHT, t.background);
 
     c.draw_text("PATTERN", x + 10, y + 5, t.textTitle, CHAR_SPACING, FONT_SCALE);
-    c.draw_text("TRA " + std::to_string(s.track + 1) + "  BAN " + hex1(s.bank) + "  PAT " + hex1(s.patternIndex),
+    c.draw_text("TRA:" + std::to_string(s.track + 1) + "  BAN:" + hex1(s.bank) + "  PAT:" + hex1(s.patternIndex),
                 x + 150, y + 5, t.textParam, CHAR_SPACING, FONT_SCALE);
 
     // Eight project tracks are rows. Each row displays the pattern selected for that track in Banks.
@@ -490,16 +521,22 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     // Direction and Shuffle are Pattern-local footer controls. They sit immediately after ALL^
     // so L+D-pad can walk the complete footer in visual order.
     const int dirX = px + 4;
-    const int shfX = dirX + 72;
-    const char* dirIcon = s.direction == 1 ? "<>" :
-                          (s.direction == 2 ? "<" :
-                           (s.direction == 3 ? "?" : ">"));
-    if (s.headerControl == 1) c.fill_rect(dirX - 4, y + BOTTOM_Y, 68, 24, t.rowCursor);
-    if (s.headerControl == 2) c.fill_rect(shfX - 4, y + BOTTOM_Y, 72, 24, t.rowCursor);
-    c.draw_text("DIR " + std::string(dirIcon), dirX, y + BOTTOM_Y + 5,
+    const int shfX = dirX + 54;
+    const char* dirIcon = s.direction == 1 ? ">|<" :
+                          (s.direction == 2 ? "|<<" :
+                           (s.direction == 3 ? "|?|" : ">>|"));
+    if (s.headerControl == 1) c.fill_rect(dirX - 4, y + BOTTOM_Y, 48, 24, t.rowCursor);
+    if (s.headerControl == 2) c.fill_rect(shfX - 4, y + BOTTOM_Y, 40, 24, t.rowCursor);
+    c.draw_text(dirIcon, dirX, y + BOTTOM_Y + 5,
                 s.headerControl == 1 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
-    c.draw_text("SHF " + hex2(s.shuffle), shfX, y + BOTTOM_Y + 5,
-                s.headerControl == 2 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
+
+    // Shuffle is represented by three offset horizontal bars rather than a text abbreviation.
+    // The bars invert with the selected footer control just like the direction symbol.
+    const Argb shuffleInk = s.headerControl == 2 ? cursor_cell_ink(t) : t.textParam;
+    const int sy = y + BOTTOM_Y + 6;
+    c.fill_rect(shfX + 7, sy,     24, 3, shuffleInk);
+    c.fill_rect(shfX + 4, sy + 7, 24, 3, shuffleInk);
+    c.fill_rect(shfX + 1, sy + 14,24, 3, shuffleInk);
 
 }
 
@@ -529,6 +566,8 @@ CursorContext PatternEditorModule::cursor_context(const PatternEditorState& s) c
         case PatternParameter::MORE: {
             const int code = s.selectedFxCode;
             if (code == songcore::FX_NONE) return cc::none();
+            if (code == FX_PATTERN_INST) return cc::instrument(step.instrument);
+            if (code == FX_PATTERN_VOL || code == songcore::FX_VOLUME) return cc::volume(step.volume);
             const int slot = fx_slot(step, code);
             if (!slot) return cc::effect_value(0, 1, songcore::effect_value_max(code));
             return cc::effect_value(songcore::step_fx_value(step, slot), slot,
@@ -575,10 +614,20 @@ PatternEditResult PatternEditorModule::handle_input(sequencer::Pattern& pattern,
     switch (action.type) {
         case ActionType::SET_VALUE:
             if (state.parameter == PatternParameter::MORE && state.selectedFxCode != songcore::FX_NONE) {
-                const int slot = ensure_fx_slot(step, state.selectedFxCode);
-                const int before = songcore::step_fx_value(step, slot);
-                songcore::step_set_fx_value(step, slot, action.value);
-                result.modified = before != action.value;
+                if (state.selectedFxCode == FX_PATTERN_INST) {
+                    const int before = step.instrument;
+                    step.instrument = static_cast<uint8_t>(std::clamp(action.value, 0, 255));
+                    result.modified = before != step.instrument;
+                } else if (state.selectedFxCode == FX_PATTERN_VOL || state.selectedFxCode == songcore::FX_VOLUME) {
+                    const int before = step.volume;
+                    step.volume = static_cast<uint8_t>(std::clamp(action.value, 0, 255));
+                    result.modified = before != step.volume;
+                } else {
+                    const int slot = ensure_fx_slot(step, state.selectedFxCode);
+                    const int before = songcore::step_fx_value(step, slot);
+                    songcore::step_set_fx_value(step, slot, action.value);
+                    result.modified = before != action.value;
+                }
                 break;
             }
 
@@ -589,10 +638,22 @@ PatternEditResult PatternEditorModule::handle_input(sequencer::Pattern& pattern,
             break;
         case ActionType::DELETE:
             if (state.parameter == PatternParameter::MORE && state.selectedFxCode != songcore::FX_NONE) {
-                const int slot = fx_slot(step, state.selectedFxCode);
-                if (slot) {
-                    songcore::step_set_fx(step, slot, songcore::FX_NONE, 0);
-                    result.modified = true;
+                if (state.selectedFxCode == FX_PATTERN_INST) {
+                    if (step.instrument != 0) {
+                        step.instrument = 0;
+                        result.modified = true;
+                    }
+                } else if (state.selectedFxCode == FX_PATTERN_VOL || state.selectedFxCode == songcore::FX_VOLUME) {
+                    if (step.volume != 0x7F) {
+                        step.volume = 0x7F;
+                        result.modified = true;
+                    }
+                } else {
+                    const int slot = fx_slot(step, state.selectedFxCode);
+                    if (slot) {
+                        songcore::step_set_fx(step, slot, songcore::FX_NONE, 0);
+                        result.modified = true;
+                    }
                 }
             } else if (parameter_editable(state.parameter)) {
                 clear_parameter(pattern, state.cursorStep, state.parameter);

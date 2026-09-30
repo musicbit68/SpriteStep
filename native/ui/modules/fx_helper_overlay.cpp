@@ -117,7 +117,9 @@ void draw_fx_helper(Canvas& c, const FxHelperState& s, const Theme& t) {
                                : (code == songcore::FX_NONE) ? t.textEmpty
                                                              : t.textValue;
             const int nameX = cellX + (CELL_W - run_advance(3)) / 2;
-            c.draw_text(songcore::effect_name(code), nameX, cellY + TEXT_PADDING, color,
+            const char* displayName = code == FX_PATTERN_INST ? "INST" :
+                                      (code == FX_PATTERN_VOL ? "VOL" : nullptr);
+            c.draw_text(displayName ? displayName : songcore::effect_name(code), nameX, cellY + TEXT_PADDING, color,
                         CHAR_SPACING, FONT_SCALE);
         }
         row += g.rows();

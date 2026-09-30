@@ -47,6 +47,10 @@ namespace pt::ui {
 
 inline constexpr int FX_GRID_COLS = 6;
 
+// Pattern-page ALL^ pseudo parameters. They are UI-only entries, not serialized FX slots.
+inline constexpr int FX_PATTERN_INST = 0x1000;
+inline constexpr int FX_PATTERN_VOL  = 0x1001;
+
 // ─── The groups ──────────────────────────────────────────────────────────────────────────────────
 //
 // Grouped by what a command REACHES, which is the one division a reader can predict without being
@@ -260,6 +264,51 @@ inline FxLayout fx_layout_for(int visible_effect_count) {
 }
 
 /** Every effect, MIDI included — the default, and what a build with the MIDI surfaces shows. */
+inline bool pattern_all_excluded_fx(int code) {
+    switch (code) {
+        case songcore::FX_GRV:
+        case songcore::FX_HOP:
+        case songcore::FX_RND:
+        case songcore::FX_RNL:
+        case songcore::FX_TBL:
+        case songcore::FX_THO:
+        case songcore::FX_TIC:
+        case songcore::FX_AUS:
+        case songcore::FX_AUF:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/** Pattern-page ALL^ picker: the general FX helper minus controls that are not useful here.
+ * VOL/PAN remain intentionally available because they document the same underlying pattern values.
+ */
+inline FxLayout fx_layout_for_pattern_all(int visible_effect_count) {
+    FxLayout base = fx_layout_for(visible_effect_count);
+    FxLayout out;
+    for (const FxGroup& source : base.groups) {
+        FxGroup filtered;
+        filtered.title = source.title;
+        for (int code : source.codes) {
+            if (code == songcore::FX_NONE || !pattern_all_excluded_fx(code))
+                filtered.codes.push_back(code);
+        }
+        if (std::string(source.title) == "INSTRUMENT") {
+            filtered.codes.erase(
+                std::remove(filtered.codes.begin(), filtered.codes.end(), songcore::FX_VOLUME),
+                filtered.codes.end());
+            auto none = std::find(filtered.codes.begin(), filtered.codes.end(), songcore::FX_NONE);
+            const auto at = none == filtered.codes.end() ? filtered.codes.begin() : none + 1;
+            filtered.codes.insert(at, FX_PATTERN_VOL);
+            filtered.codes.insert(at, FX_PATTERN_INST);
+        }
+        if (filtered.size() > 1)
+            out.groups.push_back(std::move(filtered));
+    }
+    return out;
+}
+
 inline const FxLayout& fx_layout_full() {
     static const FxLayout full = fx_layout_for(songcore::EFFECT_TYPE_COUNT);
     return full;
@@ -444,6 +493,10 @@ inline const std::vector<std::vector<std::string>>& effect_descriptions() {
  */
 inline const std::vector<std::string>& fx_description_lines(const FxHelperState& s) {
     static const std::vector<std::string> kNone{"---", "No effect"};
+    static const std::vector<std::string> kInst{"INST: Instrument", "00-7F=instrument slot", "same as Pattern I"};
+    static const std::vector<std::string> kVol{"VOL: Volume", "00-FF=volume", "same as Pattern V"};
+    if (s.selected_effect_code() == FX_PATTERN_INST) return kInst;
+    if (s.selected_effect_code() == FX_PATTERN_VOL) return kVol;
     const auto& all = effect_descriptions();
     const int   i   = songcore::effect_type_index(s.selected_effect_code());
     if (i < 0 || i >= static_cast<int>(all.size())) return kNone;

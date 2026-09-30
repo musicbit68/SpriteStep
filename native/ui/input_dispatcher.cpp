@@ -1774,7 +1774,8 @@ void InputDispatcher::on_a_right() {
 
 void InputDispatcher::on_a_released() {
     s_.seqBanksAllCursor = false;
-    // The persistent Pattern ALL^ picker commits on A press, not on A release.
+    // The persistent Pattern ALL^ picker is navigated after A is released, so its release must not
+    // commit the first effect. The normal PocketTracker FX helper still commits on A release.
     if (s_.seqPatternFxPickerPersistent) return;
     // Ahead of the overlay test: it is not an overlay's gesture, and nothing can start a second
     // preview while A is down (START is refused under A), so this can only silence the one A began.
@@ -2362,6 +2363,35 @@ void InputDispatcher::apply_pattern_range(InputAction (*fn)(const CursorContext&
         mark_modified();
 }
 
+void InputDispatcher::copy_pattern_range_to_clipboard() {
+    if (s_.currentScreen != ScreenType::PATTERN || !s_.seqPatternRangeActive) return;
+
+    Project& p = host_.edit_project();
+    const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
+    const int bank = pattern_bank_for_track(s_, track);
+    const int pat = pattern_index_for_track(s_, track);
+    auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)]
+        .banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
+
+    const int first = std::clamp(std::min(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd),
+                                 0, pattern.clamped_length() - 1);
+    const int last = std::clamp(std::max(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd),
+                                0, pattern.clamped_length() - 1);
+
+    s_.seqPatternRangeClipboard = sequencer::Pattern{};
+    s_.seqPatternRangeClipboardLength = last - first + 1;
+    for (int i = 0; i < s_.seqPatternRangeClipboardLength; ++i) {
+        const size_t src = static_cast<size_t>(first + i);
+        const size_t dst = static_cast<size_t>(i);
+        s_.seqPatternRangeClipboard.steps[dst] = pattern.steps[src];
+        s_.seqPatternRangeClipboard.conditions[dst] = pattern.conditions[src];
+        s_.seqPatternRangeClipboard.wait_ppqn[dst] = pattern.wait_ppqn[src];
+        s_.seqPatternRangeClipboard.trigless[dst] = pattern.trigless[src];
+    }
+    s_.seqPatternRangeClipboardValid = true;
+    cancel_pattern_range();
+}
+
 void InputDispatcher::cancel_pattern_range() {
     s_.seqPatternRangeActive = false;
     s_.seqPatternRangeAnchor = s_.seqPatternCursorStep;
@@ -2385,6 +2415,12 @@ void InputDispatcher::seq_a_action() {
             std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
         if (parameter == PatternParameter::MORE) {
             if (s_.seqPatternSelectedFxCode == songcore::FX_NONE) return;
+            if (s_.seqPatternSelectedFxCode == FX_PATTERN_INST ||
+                s_.seqPatternSelectedFxCode == FX_PATTERN_VOL ||
+                s_.seqPatternSelectedFxCode == songcore::FX_VOLUME) {
+                // ALL^ INST/VOL are the same authored fields as Pattern I/V.
+                return;
+            }
             if (!PatternEditorModule::parameter_present(pattern.steps[index], PatternParameter::MORE)) {
                 const int slot = PatternEditorModule::ensure_fx_slot(pattern.steps[index], s_.seqPatternSelectedFxCode);
                 songcore::step_set_fx_value(pattern.steps[index], slot, 0);
@@ -2764,18 +2800,7 @@ void InputDispatcher::on_l_a() {
             .banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
 
         if (s_.seqPatternRangeActive) {
-            const int first = std::clamp(std::min(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1);
-            const int last = std::clamp(std::max(s_.seqPatternRangeAnchor, s_.seqPatternRangeEnd), 0, pattern.clamped_length() - 1);
-            s_.seqPatternRangeClipboard = sequencer::Pattern{};
-            s_.seqPatternRangeClipboardLength = last - first + 1;
-            for (int i = 0; i < s_.seqPatternRangeClipboardLength; ++i) {
-                s_.seqPatternRangeClipboard.steps[static_cast<size_t>(i)] = pattern.steps[static_cast<size_t>(first + i)];
-                s_.seqPatternRangeClipboard.conditions[static_cast<size_t>(i)] = pattern.conditions[static_cast<size_t>(first + i)];
-                s_.seqPatternRangeClipboard.wait_ppqn[static_cast<size_t>(i)] = pattern.wait_ppqn[static_cast<size_t>(first + i)];
-                s_.seqPatternRangeClipboard.trigless[static_cast<size_t>(i)] = pattern.trigless[static_cast<size_t>(first + i)];
-            }
-            s_.seqPatternRangeClipboardValid = true;
-            cancel_pattern_range();
+            copy_pattern_range_to_clipboard();
             return;
         }
 
@@ -3824,11 +3849,12 @@ void InputDispatcher::midi_action() {
 // ─── The plain buttons ───────────────────────────────────────────────────────────────────────────
 
 void InputDispatcher::on_button_a() {
-    // Pattern ALL^ uses a persistent FX picker. A selects the highlighted effect and returns to the
-    // Pattern editor; after that, A+LEFT/RIGHT (or A+UP/DOWN) edits the selected FX value. The picker
-    // must consume this A before the underlying PATTERN action, otherwise the same press would be
-    // interpreted as editing/opening the parameter underneath the overlay.
+    // Pattern ALL^ uses a persistent FX picker: A confirms the highlighted effect and closes the
+    // picker. This must be handled before the sequencer-screen dispatch below, because the picker is
+    // an overlay over PATTERN and the underlying PATTERN A action would otherwise simply reopen it.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
+        // In the ALL^ picker, A selects the highlighted effect and returns to the Pattern page.
+        // The next A press edits that selected effect; B cancels the picker without changing it.
         s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
         s_.fxHelper = FxHelperState{};
         s_.seqPatternFxPickerPersistent = false;
@@ -4005,11 +4031,11 @@ void InputDispatcher::on_button_a() {
 }
 
 void InputDispatcher::on_button_b() {
-    // The persistent Pattern ALL^ picker owns B as cancel/close. Check it before the generic overlay
-    // swallow, otherwise FX_HELPER is treated as a modal that consumes B and the close path below is
-    // never reached.
+    // The persistent Pattern ALL^ picker owns B: B is its explicit open/close toggle. Check it
+    // before the generic overlay swallow, otherwise FX_HELPER is treated as a modal that consumes
+    // B and the close path below is never reached.
     if (s_.seqPatternFxPickerPersistent && top_overlay() == Overlay::FX_HELPER) {
-        s_.seqPatternSelectedFxCode = s_.fxHelper.selected_effect_code();
+        // B cancels the ALL^ picker; leave the previously selected effect unchanged.
         s_.fxHelper = FxHelperState{};
         s_.seqPatternFxPickerPersistent = false;
         return;
@@ -4025,18 +4051,18 @@ void InputDispatcher::on_button_b() {
     if (confirm_open()) { confirm_cancel(); return; }
 
     if (qwerty_open()) { delete_char(s_.qwerty); return; }
+    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
+        copy_pattern_range_to_clipboard();
+        return;
+    }
     if (s_.currentScreen == ScreenType::PATTERN &&
         PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)) == PatternParameter::MORE) {
         const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
         const int bank = pattern_bank_for_track(s_, track);
         const int pat = pattern_index_for_track(s_, track);
         const auto& step = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].steps[static_cast<size_t>(s_.seqPatternCursorStep)];
-        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_for(visible_effect_type_count()));
+        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_for_pattern_all(visible_effect_type_count()));
         s_.seqPatternFxPickerPersistent = true;
-        return;
-    }
-    if (s_.currentScreen == ScreenType::PATTERN && s_.seqPatternRangeActive) {
-        cancel_pattern_range();
         return;
     }
     if (s_.currentScreen == ScreenType::BANKS) { return; }
