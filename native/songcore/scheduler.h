@@ -1772,14 +1772,14 @@ class Sequencer {
             int fxType = step_fx_type(step, slot);
             int fxValue = step_fx_value(step, slot);
             if (fxType == FX_CHA) {
-                int probability = (fxValue >> 4) & 0x0F;
-                int target = fxValue & 0x0F;
-                int roll = rng_int(15);  // 0-14, so probability F always passes and 0 never does
-                bool passed = roll < probability;
-                if (!passed) {
-                    if (target == 0) skipNote = true;
-                    else if (target >= 1 && target <= 3) step_set_fx(effectiveStep, target, 0x00, 0x00);
-                }
+                // SpriteStep uses the full CHA byte as note probability. PocketTracker's low
+                // nibble selected note/FX1/FX2/FX3, but SpriteStep has no per-step FX targets;
+                // keeping that nibble would make values such as 01/02/03 behave almost like 00.
+                // Use a 0..FE roll so 00 is never and FF is always, with the full byte giving
+                // approximately byte/255 probability.
+                const int probability = fxValue & 0xFF;
+                const int roll = rng_int(255);  // 0-254
+                if (roll >= probability) skipNote = true;
             }
         }
         for (int slot = 1; slot <= 3; ++slot) {

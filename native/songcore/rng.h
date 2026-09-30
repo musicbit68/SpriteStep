@@ -27,7 +27,7 @@
 // So the API below mirrors kotlin.random.Random's CONTRACT, bound for bound:
 //
 //     Kotlin                           songcore                  used by
-//     Random.nextInt(bound)       →    next_int(bound)           CHA roll: nextInt(15) → 0..14
+//     Random.nextInt(bound)       →    next_int(bound)           CHA roll: nextInt(255) → 0..254
 //     Random.nextInt(from, until) →    next_int(from, until)     RND/RNL value, RNL note/inst offset
 //     listOf(a, b, c).random()    →    next_int(3) as an index   ARP RANDOM
 //

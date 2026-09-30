@@ -422,7 +422,7 @@ inline const std::vector<std::vector<std::string>>& effect_descriptions() {
     static const std::vector<std::vector<std::string>> d = {
         /* 00 --- */ {"---: No effect", "Empty FX slot"},
         /* 1 ARC */ {"ARC: Arpeggio config", "x=mode(0=UP 1=DN 2=PP 3=RND)", "y=speed in ticks"},
-        /* 2 CHA */ {"CHA: Probability gate", "x=prob(0=never F=always 8=50%)", "y=target(0=note 1-3=FX slot)"},
+        /* 2 CHA */ {"CHA: Note probability", "xx=probability (00=never FF=always)", "80 is approximately 50%"},
         /* 3 LAT */ {"LAT: Latency (delay trigger)", "xx=ticks before note fires"},
         /* 4 GRV */ {"GRV: Groove assign", "xx=groove ID (00=disable)"},
         /* 5 HOP */ {"HOP: Phrase/table jump", "y=target row (FF=stop track)", "table: x=repeat count"},

@@ -4486,6 +4486,7 @@ void InputDispatcher::on_start() {
         // start at 0" — while the code below it dropped them into the `default` and played the current
         // PHRASE. It went unnoticed because all four were placeholder screens (you could stand on one
         // and press START, and something plausible happened). What you want on the mixer is the MIX.
+        case ScreenType::SCALE:
         case ScreenType::MIXER:
         case ScreenType::EFFECTS:
         case ScreenType::PROJECT:

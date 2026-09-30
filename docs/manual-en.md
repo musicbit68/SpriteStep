@@ -2698,7 +2698,7 @@ Open with **A** on an EQ cell.
 |---|---|---|---|
 | ARP | Arpeggio | `XY` = intervals | Persists — cancel with `ARP 00` |
 | ARC | Arpeggio Config | `XY` | High nibble=mode (0=UP 1=DN 2=PP 3=RND), low=speed |
-| CHA | Chance | `XY` | X=probability (0=never F=always), Y=target (0=note 1=FX1 2=FX2 3=FX3) |
+| CHA | Chance | `XX` | Note probability: `00`=never, `FF`=always, `80`≈50% |
 | LAT | Latency | `XX` ticks | Delays row trigger |
 | GRV | Groove | `XX` | Assigns groove to this track |
 | HOP | Hop/Jump | `XY` | Phrase: next phrase starts at row Y (FF=stop track). Table: jump to row Y, X times (0=forever) |
