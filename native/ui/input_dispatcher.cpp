@@ -657,10 +657,12 @@ CursorContext InputDispatcher::cursor_context() const {
             }
             ps.track = track;
             ps.cursorStep = std::clamp(s_.seqPatternCursorStep, 0, ps.patterns[static_cast<size_t>(track)]->clamped_length() - 1);
-            ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+            const int footerIndex = std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1);
+            ps.parameter = PatternEditorModule::footer_parameter(footerIndex);
+            ps.selectedFxCode = PatternEditorModule::footer_fx_code(footerIndex);
             ps.scaleMask = songcore::scale_mask(songcore::scale_at(p, 0));
             ps.scaleKey = p.scaleKey;
-            ps.selectedFxCode = s_.seqPatternSelectedFxCode;
+            ps.selectedFxCode = PatternEditorModule::footer_fx_code(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
             ps.direction = static_cast<int>(p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(pattern_bank_for_track(s_, track))].patterns[static_cast<size_t>(pattern_index_for_track(s_, track))].direction);
             ps.shuffle = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(pattern_bank_for_track(s_, track))].patterns[static_cast<size_t>(pattern_index_for_track(s_, track))].shuffle;
             return pattern_.cursor_context(ps);
@@ -2333,7 +2335,7 @@ void InputDispatcher::seq_apply_pattern_action(const InputAction& action) {
     const int pat = pattern_index_for_track(s_, track);
     auto& pattern = p.sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)];
     PatternEditorState ps;
-    ps.track=track; ps.cursorStep=s_.seqPatternCursorStep; ps.selectedFxCode=s_.seqPatternSelectedFxCode; ps.parameter=PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+    ps.track=track; ps.cursorStep=s_.seqPatternCursorStep; ps.parameter=PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)); ps.selectedFxCode=PatternEditorModule::footer_fx_code(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
     const auto r = pattern_.handle_input(pattern, ps, action);
     if (r.modified) mark_modified();
 }
@@ -2352,8 +2354,9 @@ void InputDispatcher::apply_pattern_range(InputAction (*fn)(const CursorContext&
     ps.patterns[static_cast<size_t>(track)] = &pattern;
     ps.track = track;
     ps.cursorStep = s_.seqPatternCursorStep;
-    ps.parameter = PatternEditorModule::footer_parameter(
-        std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+    const int footerIndex = std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1);
+    ps.parameter = PatternEditorModule::footer_parameter(footerIndex);
+    ps.selectedFxCode = PatternEditorModule::footer_fx_code(footerIndex);
     const auto& projectScale = songcore::scale_at(p, 0);
     ps.scaleMask = songcore::scale_mask(projectScale);
     ps.scaleKey = p.scaleKey;
@@ -2411,21 +2414,16 @@ void InputDispatcher::seq_a_action() {
         // underlying step so every parameter has a concrete step to edit, while the selected
         // parameter remains the value shown in the cell.  A+DPAD then adjusts that value through
         // cursor_context()/generic_input().
-        const PatternParameter parameter = PatternEditorModule::footer_parameter(
-            std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+        const int footerIndex = std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1);
+        const PatternParameter parameter = PatternEditorModule::footer_parameter(footerIndex);
+        const int selectedFxCode = PatternEditorModule::footer_fx_code(footerIndex);
         if (parameter == PatternParameter::MORE) {
-            if (s_.seqPatternSelectedFxCode == songcore::FX_NONE) return;
-            if (s_.seqPatternSelectedFxCode == FX_PATTERN_INST ||
-                s_.seqPatternSelectedFxCode == FX_PATTERN_VOL ||
-                s_.seqPatternSelectedFxCode == songcore::FX_VOLUME) {
-                // ALL^ INST/VOL are the same authored fields as Pattern I/V.
-                return;
-            }
-            if (!PatternEditorModule::parameter_present(pattern.steps[index], PatternParameter::MORE)) {
-                const int slot = PatternEditorModule::ensure_fx_slot(pattern.steps[index], s_.seqPatternSelectedFxCode);
-                songcore::step_set_fx_value(pattern.steps[index], slot, 0);
-                mark_modified();
-            }
+            if (selectedFxCode == songcore::FX_NONE) return;
+            // Bare A on an ALL^ FX parameter creates the effect in an available slot, while A+DPAD
+            // immediately edits it through the same cursor path as every other Pattern parameter.
+            const int slot = PatternEditorModule::ensure_fx_slot(pattern.steps[index], selectedFxCode);
+            songcore::step_set_fx_value(pattern.steps[index], slot, 0);
+            mark_modified();
             return;
         }
         bool modified = false;
@@ -4055,16 +4053,6 @@ void InputDispatcher::on_button_b() {
         copy_pattern_range_to_clipboard();
         return;
     }
-    if (s_.currentScreen == ScreenType::PATTERN &&
-        PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1)) == PatternParameter::MORE) {
-        const int track = std::clamp(s_.seqPatternTrack, 0, songcore::SEQUENCER_TRACKS - 1);
-        const int bank = pattern_bank_for_track(s_, track);
-        const int pat = pattern_index_for_track(s_, track);
-        const auto& step = s_.project->sequencer.tracks[static_cast<size_t>(track)].banks[static_cast<size_t>(bank)].patterns[static_cast<size_t>(pat)].steps[static_cast<size_t>(s_.seqPatternCursorStep)];
-        s_.fxHelper = fx_helper_opened_at(s_.seqPatternSelectedFxCode != songcore::FX_NONE ? s_.seqPatternSelectedFxCode : songcore::step_fx_type(step, 1), fx_layout_for_pattern_all(visible_effect_type_count()));
-        s_.seqPatternFxPickerPersistent = true;
-        return;
-    }
     if (s_.currentScreen == ScreenType::BANKS) { return; }
     if (on_sequencer_screen()) { seq_b_action(); return; }
 
@@ -5081,7 +5069,7 @@ void InputDispatcher::on_select_a() {
         ps.track = track;
         ps.cursorStep = s_.seqPatternCursorStep;
         ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
-        ps.selectedFxCode = s_.seqPatternSelectedFxCode;
+        ps.selectedFxCode = PatternEditorModule::footer_fx_code(std::clamp(s_.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
         ps.scaleMask = songcore::scale_mask(songcore::scale_at(p, 0));
         ps.scaleKey = p.scaleKey;
         uint32_t seed = 0x9E3779B9u ^

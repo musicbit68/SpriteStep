@@ -125,14 +125,63 @@ bool PatternEditorModule::randomize_parameter(sequencer::Pattern& pattern, int s
     }
 }
 
+namespace {
+struct FooterEntry {
+    PatternParameter parameter;
+    int fxCode;
+    const char* label;
+};
+
+constexpr FooterEntry kFooterEntries[] = {
+    {PatternParameter::NOTE,          songcore::FX_NONE,   "Nte"},
+    {PatternParameter::INSTRUMENT,    songcore::FX_NONE,   "Ins"},
+    {PatternParameter::VOLUME,        songcore::FX_NONE,   "Vol"},
+    {PatternParameter::PAN,           songcore::FX_NONE,   "Pan"},
+    {PatternParameter::SLIDE,         songcore::FX_NONE,   "Sli"},
+    {PatternParameter::CHANCE,        songcore::FX_NONE,   "Chn"},
+    {PatternParameter::ARPEGGIATOR,   songcore::FX_NONE,   "Arp"},
+    {PatternParameter::MORE,          songcore::FX_LAT,    "Lat"},
+    {PatternParameter::MORE,          songcore::FX_ARC,    "Arc"},
+    {PatternParameter::MORE,          songcore::FX_OFFSET, "Off"},
+    {PatternParameter::MORE,          songcore::FX_REPEAT, "Rpt"},
+    {PatternParameter::MORE,          songcore::FX_PBN,    "Pbn"},
+    {PatternParameter::MORE,          songcore::FX_PVB,    "Pvb"},
+    {PatternParameter::MORE,          songcore::FX_PVX,    "Pvx"},
+    {PatternParameter::MORE,          songcore::FX_PIT,    "Pit"},
+    {PatternParameter::MORE,          songcore::FX_SLI,    "Sli"},
+    {PatternParameter::MORE,          songcore::FX_BCK,    "Bck"},
+    {PatternParameter::MORE,          songcore::FX_EQN,    "Eqn"},
+    {PatternParameter::MORE,          songcore::FX_CUT,    "Cut"},
+    {PatternParameter::MORE,          songcore::FX_RES,    "Res"},
+    {PatternParameter::MORE,          songcore::FX_LPF,    "Lpf"},
+    {PatternParameter::MORE,          songcore::FX_HPF,    "Hpf"},
+    {PatternParameter::MORE,          songcore::FX_BPF,    "Bpf"},
+    {PatternParameter::MORE,          songcore::FX_DRV,    "Drv"},
+    {PatternParameter::MORE,          songcore::FX_CRU,    "Cru"},
+    {PatternParameter::MORE,          songcore::FX_FIN,    "Fin"},
+    {PatternParameter::MORE,          songcore::FX_TSX,    "Tsx"},
+    {PatternParameter::MORE,          songcore::FX_LPO,    "Lpo"},
+    {PatternParameter::MORE,          songcore::FX_RSEND,  "Rev"},
+    {PatternParameter::MORE,          songcore::FX_DSEND,  "Dly"},
+};
+static_assert(sizeof(kFooterEntries) / sizeof(kFooterEntries[0]) == PatternEditorModule::FOOTER_PARAMETER_COUNT);
+
+const FooterEntry& footer_entry(int index) {
+    const int i = ((index % PatternEditorModule::FOOTER_PARAMETER_COUNT) + PatternEditorModule::FOOTER_PARAMETER_COUNT) % PatternEditorModule::FOOTER_PARAMETER_COUNT;
+    return kFooterEntries[i];
+}
+} // namespace
+
 PatternParameter PatternEditorModule::footer_parameter(int index) {
-    static constexpr PatternParameter params[] = {
-        PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
-        PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
-        PatternParameter::ARPEGGIATOR, PatternParameter::MORE
-    };
-    const int i = std::clamp(index, 0, FOOTER_PARAMETER_COUNT - 1);
-    return params[i];
+    return footer_entry(index).parameter;
+}
+
+int PatternEditorModule::footer_fx_code(int index) {
+    return footer_entry(index).fxCode;
+}
+
+const char* PatternEditorModule::footer_label(int index) {
+    return footer_entry(index).label;
 }
 
 const char* PatternEditorModule::parameter_label(PatternParameter p) {
@@ -501,26 +550,41 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
         }
     }
 
-    static constexpr PatternParameter params[] = {
-        PatternParameter::NOTE, PatternParameter::INSTRUMENT, PatternParameter::VOLUME,
-        PatternParameter::PAN, PatternParameter::SLIDE, PatternParameter::CHANCE,
-        PatternParameter::ARPEGGIATOR, PatternParameter::MORE
-    };
-    c.draw_text(parameter_name(s.parameter), x + 12, y + 337,
-                t.textParam, CHAR_SPACING, FONT_SCALE);
-    int px = x + 12;
-    for (PatternParameter p : params) {
-        const std::string label = p == PatternParameter::MORE ? "ALL^" : parameter_label(p);
-        const int w = std::max(30, Canvas::text_width(label, CHAR_SPACING, FONT_SCALE) + 12);
-        const bool selected = p == s.parameter && s.headerControl == 0;
-        if (selected) c.fill_rect(px - 3, y + BOTTOM_Y, w, 24, t.rowCursor);
-        c.draw_text(label, px, y + BOTTOM_Y + 5,
-                    selected ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
-        px += w + 3;
+    // The footer is a horizontal parameter carousel. Keep three entries visible at all times:
+    // the center entry is active/white, its neighbours are darker grey previews. This replaces the
+    // old modal ALL^ picker, so the same selected parameter is always the one rendered in the grid
+    // and edited by A+DPAD.
+    // PatternEditorState carries the resolved enum/code pair rather than the footer index. The
+    // renderer receives the index through the label lookup below by matching the current pair.
+    int selectedIndex = 0;
+    for (int i = 0; i < FOOTER_PARAMETER_COUNT; ++i) {
+        if (kFooterEntries[i].parameter == s.parameter &&
+            kFooterEntries[i].fxCode == s.selectedFxCode) {
+            selectedIndex = i;
+            break;
+        }
     }
-    // Direction and Shuffle are Pattern-local footer controls. They sit immediately after ALL^
-    // so L+D-pad can walk the complete footer in visual order.
-    const int dirX = px + 4;
+    if (s.parameter != PatternParameter::MORE) {
+        for (int i = 0; i < FOOTER_PARAMETER_COUNT; ++i) {
+            if (kFooterEntries[i].parameter == s.parameter && kFooterEntries[i].fxCode == songcore::FX_NONE) {
+                selectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    constexpr int slotW = 52;
+    const int carouselCenterX = x + 110;
+    for (int offset = -1; offset <= 1; ++offset) {
+        const int index = (selectedIndex + offset + FOOTER_PARAMETER_COUNT) % FOOTER_PARAMETER_COUNT;
+        const int labelW = Canvas::text_width(kFooterEntries[index].label, CHAR_SPACING, FONT_SCALE);
+        const int px = carouselCenterX + offset * slotW - labelW / 2;
+        const Argb ink = offset == 0 ? t.textValue : t.textParam;
+        c.draw_text(kFooterEntries[index].label, px, y + BOTTOM_Y + 5, ink, CHAR_SPACING, FONT_SCALE);
+    }
+
+    // Direction and Shuffle remain Pattern-local footer controls to the right of the carousel.
+    const int dirX = x + 205;
     const int shfX = dirX + 54;
     const char* dirIcon = s.direction == 1 ? ">|<" :
                           (s.direction == 2 ? "|<<" :
@@ -530,13 +594,12 @@ void PatternEditorModule::draw(Canvas& c, int x, int y, const PatternEditorState
     c.draw_text(dirIcon, dirX, y + BOTTOM_Y + 5,
                 s.headerControl == 1 ? cursor_cell_ink(t) : t.textParam, CHAR_SPACING, FONT_SCALE);
 
-    // Shuffle is represented by three offset horizontal bars rather than a text abbreviation.
-    // The bars invert with the selected footer control just like the direction symbol.
     const Argb shuffleInk = s.headerControl == 2 ? cursor_cell_ink(t) : t.textParam;
     const int sy = y + BOTTOM_Y + 6;
-    c.fill_rect(shfX + 7, sy,     24, 3, shuffleInk);
-    c.fill_rect(shfX + 4, sy + 7, 24, 3, shuffleInk);
-    c.fill_rect(shfX + 1, sy + 14,24, 3, shuffleInk);
+    c.fill_rect(shfX + 7, sy,      24, 3, shuffleInk);
+    c.fill_rect(shfX + 4, sy + 7,  24, 3, shuffleInk);
+    c.fill_rect(shfX + 1, sy + 14, 24, 3, shuffleInk);
+
 
 }
 

@@ -20,6 +20,28 @@ int main() {
     state.cursorStep = 2;
 
     PatternEditorModule module;
+
+    // The Pattern footer is now a 30-entry carousel: seven normal parameters followed by the
+    // useful ALL^ FX parameters. The center entry is resolved by enum + FX code, so every ALL^
+    // value uses the same editor/render path as the ordinary footer parameters.
+    assert(PatternEditorModule::FOOTER_PARAMETER_COUNT == 30);
+    assert(std::string(PatternEditorModule::footer_label(0)) == "Nte");
+    assert(std::string(PatternEditorModule::footer_label(1)) == "Ins");
+    assert(std::string(PatternEditorModule::footer_label(2)) == "Vol");
+    assert(std::string(PatternEditorModule::footer_label(6)) == "Arp");
+    assert(std::string(PatternEditorModule::footer_label(7)) == "Lat");
+    assert(PatternEditorModule::footer_fx_code(7) == FX_LAT);
+    assert(PatternEditorModule::footer_parameter(23) == PatternParameter::MORE);
+    assert(PatternEditorModule::footer_fx_code(23) == FX_DRV);
+    assert(PatternEditorModule::footer_fx_code(28) == FX_RSEND);
+    assert(std::string(PatternEditorModule::footer_label(29)) == "Dly");
+    assert(PatternEditorModule::footer_fx_code(29) == FX_DSEND);
+    for (int i = 7; i < PatternEditorModule::FOOTER_PARAMETER_COUNT; ++i) {
+        const int code = PatternEditorModule::footer_fx_code(i);
+        assert(code != FX_GRV && code != FX_HOP && code != FX_RND && code != FX_RNL);
+        assert(code != FX_TBL && code != FX_THO && code != FX_TIC && code != FX_AUS && code != FX_AUF);
+    }
+
     auto result = module.handle_input(p, state, InputAction::set_value(60));
     assert(result.modified);
     assert(p.steps[2].note == Note::C4());

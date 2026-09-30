@@ -100,7 +100,12 @@ public:
     static void clear_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p);
     static std::string parameter_text(const sequencer::PatternStep& step, PatternParameter p);
     static PatternParameter footer_parameter(int index);
-    static constexpr int FOOTER_PARAMETER_COUNT = 8;
+    static int footer_fx_code(int index);
+    static const char* footer_label(int index);
+    // The Pattern footer is a 30-item horizontal carousel: the seven normal parameters followed
+    // by the useful ALL^ FX parameters. Only the center item is active; the two neighbours are
+    // previewed so L1+LEFT/RIGHT can scroll without opening a modal picker.
+    static constexpr int FOOTER_PARAMETER_COUNT = 30;
     static bool randomize_parameter(sequencer::Pattern& pattern, int stepIndex, PatternParameter p,
                                     int selectedFxCode, uint32_t seed, unsigned scaleMask = 0x0FFFu,
                                     int scaleKey = 0, const std::vector<int>* instrumentPool = nullptr);

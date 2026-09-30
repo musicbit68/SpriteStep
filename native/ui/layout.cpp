@@ -204,7 +204,9 @@ void TrackerLayout::draw_frame(Canvas& c, const AppState& s) {
                 ps.playhead = s.playheads[ps.track];
                 std::copy(std::begin(s.playheads), std::end(s.playheads), std::begin(ps.playheads));
                 ps.cursorStep = s.seqPatternCursorStep;
-                ps.parameter = PatternEditorModule::footer_parameter(std::clamp(s.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1));
+                const int footerIndex = std::clamp(s.seqPatternParameter, 0, PatternEditorModule::FOOTER_PARAMETER_COUNT - 1);
+                ps.parameter = PatternEditorModule::footer_parameter(footerIndex);
+                ps.selectedFxCode = PatternEditorModule::footer_fx_code(footerIndex);
                 ps.rateLengthHighlight = s.seqPatternRateLengthHighlight;
                 ps.rangeActive = s.seqPatternRangeActive;
                 ps.rangeStart = s.seqPatternRangeAnchor;
