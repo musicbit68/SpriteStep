@@ -11,9 +11,12 @@ std::size_t TrackPlayer::stepAtTransport(Tick transportTick) const {
         case PlayDirection::Reverse: return len - 1 - pos;
         case PlayDirection::PingPong: {
             if (len <= 1) return 0;
-            const std::size_t period = (len - 1) * 2;
-            const std::size_t x = static_cast<std::size_t>((step % static_cast<Tick>(period) + period) % period);
-            return x < len ? x : period - x;
+            // Ping-pong repeats both endpoints:
+            // 0,1,...,len-1,len-1,...,1,0,0,...
+            // This makes the terminal step audible for a full step before reversing.
+            const std::size_t period = len * 2;
+            const std::size_t x = static_cast<std::size_t>(step % static_cast<Tick>(period));
+            return x < len ? x : period - 1 - x;
         }
     }
     return pos;
