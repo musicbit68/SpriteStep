@@ -36,6 +36,31 @@ static void testDirections() {
     assert(player.stepAtTransport(7 * PPQ) == 0);
     assert(player.stepAtTransport(8 * PPQ) == 0);
 }
+static void testPatternSpeed() {
+    Pattern p; p.setLength(4);
+    TrackPlayer player; player.setPattern(&p);
+
+    p.speed = SpeedMultiplier::Half;
+    assert(player.stepAtTransport(0) == 0);
+    assert(player.stepAtTransport(PPQ) == 0);
+    assert(player.stepAtTransport(2 * PPQ) == 1);
+    assert(player.stepAtTransport(3 * PPQ) == 1);
+
+    p.speed = SpeedMultiplier::One;
+    assert(player.stepAtTransport(PPQ) == 1);
+    assert(player.stepAtTransport(2 * PPQ) == 2);
+
+    p.speed = SpeedMultiplier::Double;
+    assert(player.stepAtTransport(PPQ) == 2);
+    assert(player.stepAtTransport(2 * PPQ) == 0);
+
+    p.speed = SpeedMultiplier::Quadruple;
+    assert(player.stepAtTransport(PPQ) == 0);
+    assert(player.stepAtTransport(PPQ + PPQ / 4 - 1) == 0);
+    assert(player.stepAtTransport(PPQ + PPQ / 4) == 1);
+    assert(player.stepAtTransport(PPQ + PPQ / 2) == 2);
+    assert(player.stepAtTransport(PPQ + (3 * PPQ) / 4) == 3);
+}
 static void testAllParametersAndDefaults() {
     Instrument inst; inst.defaults[static_cast<size_t>(Parameter::Volume)] = ParameterValue::Set(0xEF);
     Step s; assert(!s.get(Parameter::Volume).set);
@@ -73,7 +98,7 @@ static void testSequencer() {
     e = seq.eventsAt(PPQ); assert(e.size() == 1 && e[0].note == 62);
 }
 int main() {
-    testPatternLength(); testPolymeter(); testDirections(); testAllParametersAndDefaults(); testLaunchModes(); testSequencer();
+    testPatternLength(); testPolymeter(); testDirections(); testPatternSpeed(); testAllParametersAndDefaults(); testLaunchModes(); testSequencer();
     std::cout << "SpriteStep engine tests: PASS\n";
     return 0;
 }
