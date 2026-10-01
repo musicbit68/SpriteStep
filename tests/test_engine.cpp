@@ -56,10 +56,10 @@ static void testPatternSpeed() {
 
     p.speed = SpeedMultiplier::Quadruple;
     assert(player.stepAtTransport(PPQ) == 0);
-    assert(player.stepAtTransport(2 * PPQ) == 0);
-    assert(player.stepAtTransport(3 * PPQ) == 0);
-    assert(player.stepAtTransport(4 * PPQ) == 0);
-    assert(player.stepAtTransport(5 * PPQ) == 1);
+    assert(player.stepAtTransport(PPQ + PPQ / 4 - 1) == 0);
+    assert(player.stepAtTransport(PPQ + PPQ / 4) == 1);
+    assert(player.stepAtTransport(PPQ + PPQ / 2) == 2);
+    assert(player.stepAtTransport(PPQ + (3 * PPQ) / 4) == 3);
 }
 static void testAllParametersAndDefaults() {
     Instrument inst; inst.defaults[static_cast<size_t>(Parameter::Volume)] = ParameterValue::Set(0xEF);
