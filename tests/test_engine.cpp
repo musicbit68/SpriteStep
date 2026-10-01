@@ -30,7 +30,11 @@ static void testDirections() {
     assert(player.stepAtTransport(PPQ) == 1);
     assert(player.stepAtTransport(2 * PPQ) == 2);
     assert(player.stepAtTransport(3 * PPQ) == 3);
-    assert(player.stepAtTransport(4 * PPQ) == 2);
+    assert(player.stepAtTransport(4 * PPQ) == 3);
+    assert(player.stepAtTransport(5 * PPQ) == 2);
+    assert(player.stepAtTransport(6 * PPQ) == 1);
+    assert(player.stepAtTransport(7 * PPQ) == 0);
+    assert(player.stepAtTransport(8 * PPQ) == 0);
 }
 static void testAllParametersAndDefaults() {
     Instrument inst; inst.defaults[static_cast<size_t>(Parameter::Volume)] = ParameterValue::Set(0xEF);
