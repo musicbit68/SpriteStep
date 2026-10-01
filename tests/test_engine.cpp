@@ -3,6 +3,7 @@
 #include "sequencer/TrackPlayer.h"
 #include <cassert>
 #include <iostream>
+#include <memory>
 
 using namespace ss;
 
@@ -41,29 +42,29 @@ static void testAllParametersAndDefaults() {
     assert(inst.resolve(Parameter::Volume, s.get(Parameter::Volume)).value == 0xEF);
 }
 static void testLaunchModes() {
-    Project project; Sequencer seq(project); seq.transport().setPosition(PPQ + 3);
-    seq.launcher(0).request(project.tracks[0], 2, 3, LaunchMode::Quantized, seq.transport());
-    assert(project.tracks[0].activeBank == 0);
+    auto project = std::make_unique<Project>(); Sequencer seq(*project); seq.transport().setPosition(PPQ + 3);
+    seq.launcher(0).request(project->tracks[0], 2, 3, LaunchMode::Quantized, seq.transport());
+    assert(project->tracks[0].activeBank == 0);
     seq.transport().setPosition(seq.transport().nextDownbeat());
-    seq.launcher(0).applyIfDue(project.tracks[0], seq.transport());
-    assert(project.tracks[0].activeBank == 2 && project.tracks[0].activePattern == 3);
+    seq.launcher(0).applyIfDue(project->tracks[0], seq.transport());
+    assert(project->tracks[0].activeBank == 2 && project->tracks[0].activePattern == 3);
 
     seq.transport().setPosition(1234);
-    seq.launcher(0).request(project.tracks[0], 1, 7, LaunchMode::Legato, seq.transport());
+    seq.launcher(0).request(project->tracks[0], 1, 7, LaunchMode::Legato, seq.transport());
     seq.transport().setPosition(1234);
-    seq.launcher(0).applyIfDue(project.tracks[0], seq.transport());
-    assert(project.tracks[0].activeBank == 2);
+    seq.launcher(0).applyIfDue(project->tracks[0], seq.transport());
+    assert(project->tracks[0].activeBank == 2);
     seq.transport().setPosition(1235);
-    seq.launcher(0).applyIfDue(project.tracks[0], seq.transport());
-    assert(project.tracks[0].activeBank == 1 && project.tracks[0].activePattern == 7);
+    seq.launcher(0).applyIfDue(project->tracks[0], seq.transport());
+    assert(project->tracks[0].activeBank == 1 && project->tracks[0].activePattern == 7);
 }
 static void testSequencer() {
-    Project project;
-    auto& p = project.tracks[0].active();
+    auto project = std::make_unique<Project>();
+    auto& p = project->tracks[0].active();
     p.setLength(13);
     p.step(0).set(Parameter::Note, ParameterValue::Set(60));
     p.step(1).set(Parameter::Note, ParameterValue::Set(62));
-    Sequencer seq(project);
+    Sequencer seq(*project);
     auto e = seq.eventsAt(0); assert(e.size() == 1 && e[0].note == 60);
     e = seq.eventsAt(PPQ); assert(e.size() == 1 && e[0].note == 62);
 }
