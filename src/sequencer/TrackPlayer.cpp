@@ -3,13 +3,12 @@
 namespace ss {
 std::size_t TrackPlayer::stepAtTransport(Tick transportTick) const {
     if (!pattern_ || pattern_->length == 0) return 0;
-    const Tick baseStep = transportTick / PPQ;
-    Tick step = baseStep;
+    Tick step = transportTick / PPQ;
     switch (pattern_->speed) {
-        case SpeedMultiplier::Half: step = baseStep / 2; break;
-        case SpeedMultiplier::One: step = baseStep; break;
-        case SpeedMultiplier::Double: step = baseStep * 2; break;
-        case SpeedMultiplier::Quadruple: step = baseStep * 4; break;
+        case SpeedMultiplier::Half: step = transportTick / (PPQ * 2); break;
+        case SpeedMultiplier::One: step = transportTick / PPQ; break;
+        case SpeedMultiplier::Double: step = (transportTick * 2) / PPQ; break;
+        case SpeedMultiplier::Quadruple: step = (transportTick * 4) / PPQ; break;
     }
     const std::size_t len = pattern_->length;
     const std::size_t pos = static_cast<std::size_t>((step % static_cast<Tick>(len) + len) % len);
