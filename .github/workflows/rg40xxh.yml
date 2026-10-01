@@ -1,0 +1,89 @@
+name: RG40XXH PortMaster Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rg40xxh:
+    name: RG40XXH / aarch64 PortMaster package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ARM64 cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-aarch64-linux-gnu
+
+      - name: Configure ARM64 build
+        run: |
+          cmake -S . -B build-rg40xxh \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+
+      - name: Build ARM64 executable
+        run: cmake --build build-rg40xxh --config Release --parallel
+
+      - name: Verify ARM64 executable
+        run: |
+          file build-rg40xxh/SpriteStep
+          aarch64-linux-gnu-readelf -h build-rg40xxh/SpriteStep | grep 'Class\\|Machine'
+
+      - name: Assemble PortMaster test package
+        run: |
+          mkdir -p package/SpriteStep
+          cp build-rg40xxh/SpriteStep package/SpriteStep/SpriteStep
+          cp SpriteStep.sh package/SpriteStep/SpriteStep.sh
+          chmod +x package/SpriteStep/SpriteStep.sh
+          chmod +x package/SpriteStep/SpriteStep
+
+          cat > package/SpriteStep/port.json <<'EOF'
+          {
+            "version": 1,
+            "name": "SpriteStep.zip",
+            "items": [
+              "SpriteStep.sh",
+              "SpriteStep"
+            ],
+            "items_opt": [],
+            "attr": {
+              "title": "SpriteStep",
+              "porter": ["musicbit68"],
+              "desc": "SpriteStep tracker development build.",
+              "inst": "Development test build for Anbernic RG40XXH.",
+              "genres": ["music"],
+              "image": null,
+              "rtr": true,
+              "exp": true,
+              "runtime": [],
+              "reqs": [],
+              "arch": ["aarch64"]
+            }
+          }
+          EOF
+
+          cat > package/SpriteStep/README.md <<'EOF'
+          # SpriteStep
+
+          Development PortMaster package for testing SpriteStep on the Anbernic RG40XXH.
+
+          This package is built specifically for aarch64 and is intended for hardware testing, not yet for public PortMaster distribution.
+          EOF
+
+          cd package
+          zip -r ../SpriteStep-RG40XXH-PortMaster.zip SpriteStep
+
+      - name: Upload RG40XXH package
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpriteStep-RG40XXH-PortMaster
+          path: SpriteStep-RG40XXH-PortMaster.zip
+          if-no-files-found: error
+          retention-days: 14
