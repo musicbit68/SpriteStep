@@ -24,9 +24,7 @@ jobs:
 
       - name: Configure ARM64 build
         run: |
-          cmake -S . -B build-rg40xxh \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+          cmake -S . -B build-rg40xxh             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
 
       - name: Build ARM64 executable
         run: cmake --build build-rg40xxh --config Release --parallel
@@ -34,7 +32,7 @@ jobs:
       - name: Verify ARM64 executable
         run: |
           file build-rg40xxh/SpriteStep
-          aarch64-linux-gnu-readelf -h build-rg40xxh/SpriteStep | grep 'Class\\|Machine'
+          aarch64-linux-gnu-readelf -h build-rg40xxh/SpriteStep | grep -E 'Class|Machine'
 
       - name: Assemble PortMaster test package
         run: |
