@@ -1,25 +1,23 @@
-# ─── The version, PARSED from the one place that already had it ────────────────────────────────
+# SpriteStep version used by the native/SDL shell.
 #
-# Three builds want the version string and none of them may become a SECOND place a release has to
-# remember to bump — that is the shape of bug this project keeps paying for. So it is read out of
-# app/build.gradle.kts, where `versionName` has always lived, and this file is included by both
-# shell/CMakeLists.txt (desktop, PortMaster) and native/CMakeLists.txt (the Android .so), so the
-# regex exists once rather than once per tree.
-#
-# Sets, in the includer's scope:
-#   PT_VERSION        "0.9.4"     — the Windows .rc, the zip name, and the runtime banner
-#   PT_VERSION_COMMA  "0,9,4,0"   — the Windows VERSIONINFO fields, which take four integers
-#
-# FATAL_ERROR rather than a warning-and-a-default: the file is in this repo and cannot be missing,
-# so the only way here is somebody changing the Gradle syntax, and then a three-second regex fix is
-# the right outcome. A default would let a build ship a version string that is quietly a lie.
+# The pre-2.0 Android tree stored this in app/build.gradle.kts. The current architecture no longer
+# carries the Android application, so the desktop/PortMaster shell must not depend on that removed
+# tree just to configure. When the legacy Gradle file exists we preserve its version; otherwise the
+# current development line uses an explicit development version.
 
-file(READ "${CMAKE_CURRENT_LIST_DIR}/../../app/build.gradle.kts" PT_GRADLE)
-if(NOT PT_GRADLE MATCHES "versionName[ \t]*=[ \t]*\"([0-9]+)\\.([0-9]+)\\.([0-9]+)\"")
-    message(FATAL_ERROR
-            "could not find versionName in app/build.gradle.kts - if its syntax changed, update "
-            "the regex in native/cmake/pt_version.cmake")
+set(PT_VERSION_FILE "${CMAKE_CURRENT_LIST_DIR}/../../app/build.gradle.kts")
+if(EXISTS "${PT_VERSION_FILE}")
+    file(READ "${PT_VERSION_FILE}" PT_GRADLE)
+    if(NOT PT_GRADLE MATCHES "versionName[ \\t]*=[ \\t]*\"([0-9]+)\\.([0-9]+)\\.([0-9]+)\"")
+        message(FATAL_ERROR
+                "could not find versionName in app/build.gradle.kts - if its syntax changed, update "
+                "the regex in native/cmake/pt_version.cmake")
+    endif()
+    set(PT_VERSION       "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
+    set(PT_VERSION_COMMA "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
+    message(STATUS "SPRITESTEP ${PT_VERSION} (from app/build.gradle.kts)")
+else()
+    set(PT_VERSION "2.0.0-dev")
+    set(PT_VERSION_COMMA "2,0,0,0")
+    message(STATUS "SPRITESTEP ${PT_VERSION} (development shell build)")
 endif()
-set(PT_VERSION       "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
-set(PT_VERSION_COMMA "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
-message(STATUS "SPRITESTEP ${PT_VERSION} (from app/build.gradle.kts)")
