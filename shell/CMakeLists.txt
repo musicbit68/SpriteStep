@@ -166,6 +166,13 @@ set_target_properties(spritestep-sdl PROPERTIES
 
 target_compile_definitions(spritestep-sdl PRIVATE "PT_VERSION_STRING=\"${PT_VERSION}\"" "PT_UI_REVISION=\"SPRITESTEP-UI-V3\"")
 
+# SDL's configure-time HAVE_IMMINTRIN_H probe can see the build host headers while cross-compiling.
+# The RG40XXH target is AArch64, where immintrin.h is an x86 header and must never be included.
+# Disable that optional SIMD header explicitly for ARM builds; SDL's ARM/NEON paths remain available.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|armv8|arm)$" OR CMAKE_CXX_COMPILER_TARGET MATCHES "aarch64|arm64")
+    target_compile_definitions(spritestep-sdl PRIVATE SDL_DISABLE_IMMINTRIN_H)
+endif()
+
 # winmm — `midiOutShortMsg` and friends (midi-out-winmm.cpp). In every Windows install; no package,
 # no manifest capability.
 #
