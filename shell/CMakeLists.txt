@@ -159,7 +159,10 @@ add_executable(spritestep-sdl
 
 # app.cpp's boot banner. A bug report arrives as a log file and a sentence, and without this the
 # version is only in the download's filename — which a reporter has usually thrown away.
-set_target_properties(spritestep-sdl PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set_target_properties(spritestep-sdl PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        OUTPUT_NAME "SpriteStep"
+)
 
 target_compile_definitions(spritestep-sdl PRIVATE "PT_VERSION_STRING=\"${PT_VERSION}\"" "PT_UI_REVISION=\"SPRITESTEP-UI-V3\"")
 
