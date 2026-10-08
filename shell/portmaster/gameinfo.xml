@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<gameList>
+  <game>
+    <path>./SPRITESTEP.sh</path>
+    <name>SPRITESTEP</name>
+    <desc>SPRITESTEP is a music tracker for retro gaming handhelds.</desc>
+    <image>./spritestep/screenshot.png</image>
+    <releasedate>20260716T000000</releasedate>
+    <developer>conan</developer>
+    <publisher>conan</publisher>
+    <genre>Other</genre>
+    <players>1</players>
+  </game>
+</gameList>

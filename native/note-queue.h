@@ -1,0 +1,465 @@
+#pragma once
+#include <queue>
+#include <mutex>
+#include <vector>
+#include <string>
+#include <atomic>
+#include <cstdint>
+#include "audio-defs.h"
+
+// ===================================
+// SOUNDFONT INFRASTRUCTURE (TinySoundFont)
+// ===================================
+// Forward declaration — tsf is defined in soundfont-voice.cpp (TSF_IMPLEMENTATION).
+struct tsf;
+
+// A slot holds ONE PRESET, not a whole bank, so eight tracks on eight different sounds of the same
+// file want eight slots — plus the preview lane, plus room for the file the user is scrolling through
+// on the INSTRUMENT screen. A trimmed preset is one to three megabytes, so the headroom is cheap.
+// ⚠️ `SfBigBlock g_sfBig[MAX_SOUNDFONTS + 2]` in soundfont-voice.cpp sizes off this.
+static const int MAX_SOUNDFONTS = 12;
+
+struct SoundfontEntry {
+    tsf* handle = nullptr;
+    std::mutex mutex;            // Protects handle from concurrent audio/JNI access
+    int instrumentId = -1;       // Which Instrument slot owns this (-1 = free)
+    // ⚠️ **The IDENTITY of a slot is the path AND the bank AND the preset**, because what is loaded
+    // is one preset trimmed out of the file rather than the file. Two instruments on the same .sf2 at
+    // different sounds are two slots; matching on the path alone would hand the second one whichever
+    // sound loaded first, with nothing to hear but the wrong instrument.
+    std::string filePath;
+    int bank = -1, preset = -1;
+    std::atomic<uint64_t> lastUsed{0};  // Monotonic use tick for LRU eviction; 0 = never used
+    // Rendered via the master tsf handle on per-track MIDI channels (no per-track clones).
+};
+
+extern SoundfontEntry soundfonts[MAX_SOUNDFONTS];
+
+// Monotonic "use" tick for true-LRU SoundFont eviction. Bumped on load and on each note trigger;
+// eviction drops the slot with the smallest tick (genuinely least-recently-used, so the SF playing
+// right now is never evicted). A function-local static gives one shared counter across translation
+// units with no ODR-prone global definition.
+inline uint64_t nextSfUseTick() {
+    static std::atomic<uint64_t> counter{0};
+    return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+// Sample-accurate note scheduling: notes carry exact target frame numbers;
+// the audio callback triggers them at precise moments.
+struct ScheduledNote {
+    int64_t targetFrame;     // Exact audio frame to trigger this note
+    int sampleId;            // Which sample to play (0-255)
+    int trackId;             // Which track/voice (0-7)
+    float frequency;         // Target playback frequency
+    float baseFrequency;     // Sample's base frequency
+    float volume;            // Instrument volume (0.0-1.0) — maps to MOD_SRC_INSTR_VOL
+    float phraseVolume;      // Phrase step volume (0.0-1.0) — maps to MOD_SRC_PHRASE_VOL
+    float pan;               // Stereo pan position (0.0=left, 0.5=center, 1.0=right)
+    int startPointOverride;  // Optional start point override (-1 = use instrument default)
+    int endPointOverride;    // Optional end point override for CUT slice mode (-1 = use instrument default)
+
+    int tableId;             // Table to use (-1 = no table)
+    int tableTicRate;        // Ticks per table row advance (default 6)
+
+    // Note info for special TIC modes
+    int noteOctave;          // Octave of note (0-9) for TICFC mode
+    int notePitch;           // Pitch of note (0-11, C=0) for TICFE mode
+
+    // Pitch modulation parameters — applied at note trigger, allowing per-note pitch effects.
+    // ⚠️ UNITS: songcore/voice_derive.h converts PSL and PBN out of the tick/step domain the FX cells
+    // are authored in BEFORE they reach this queue (`pslDur * framesPerTic`, `pbnRate / framesPerStep`).
+    // What arrives here is already per-FRAME, and the engine applies it without further scaling.
+    float pslInitialOffset;  // PSL: Initial pitch offset in semitones (0 = no PSL)
+    float pslDuration;       // PSL: Slide duration in FRAMES (0 = no slide)
+    float pbnRate;           // PBN: Semitones per FRAME (0 = no bend)
+    float vibratoSpeed;      // PVB/PVX: LFO speed in Hz (0 = no vibrato)
+    float vibratoDepth;      // PVB/PVX: Depth in semitones (0 = no vibrato)
+
+    // Table start row override (THO effect from phrase)
+    int tableStartRow;       // -1 = default (0 or TIC00 continuity), 0-15 = forced start row
+
+    // SoundFont fields (only used when isSoundfont == true)
+    bool isSoundfont = false;   // When true, use tsf path instead of voice pool
+    int  sfSlot      = -1;      // Index into soundfonts[] array
+    int  midiNote    = 60;      // MIDI note 0-127
+    int  midiVelocity = 100;    // MIDI velocity 0-127
+    int  sfBank      = 0;       // SF2 bank number (0-127)
+    int  sfPreset    = 0;       // SF2 preset number within bank (0-127)
+    float detuneSemitones = 0.0f; // SF: static fine pitch offset in semitones (instrument detune)
+
+    // For priority queue sorting (earliest frame first)
+    bool operator>(const ScheduledNote& other) const {
+        return targetFrame > other.targetFrame;
+    }
+};
+
+// Scheduled kill event (for Kill effect K00, soft note-off for ADSR release, and a live key let go of)
+//
+// ⚠️ **ONE `mode`, NOT A SECOND BOOL BESIDE `softKill`.** Two bools can encode a state that means
+// nothing (hard AND key-release), and the dispatch would have to pick a winner somewhere; an enum
+// cannot be put into that state at all. Same rule the repo applies to every "derive it from the data"
+// case — the numbers below are internal to the engine and unrelated to event.h's NOTE_OFF_* wire
+// values, which is why the consumer translates rather than casts.
+enum KillMode : uint8_t {
+    KILL_HARD    = 0,   // K00 / killTrack — declick fade, whatever the instrument is
+    KILL_SOFT    = 1,   // KIL's soft note-off — ADSR release, else a declick fade
+    KILL_KEY_OFF = 2,   // a KEY released (MIDI in, plan §4.1) — a one-shot IGNORES it and plays out
+    KILL_CUT     = 3,   // a held audition let go of — KILL_FADE_SAMPLES and gone, no release tail at all
+};
+
+struct ScheduledKill {
+    int64_t targetFrame;     // Exact audio frame to trigger kill
+    int trackId;             // Which track to kill (0-7)
+    KillMode mode = KILL_HARD;
+
+    // For priority queue sorting (earliest frame first)
+    bool operator>(const ScheduledKill& other) const {
+        return targetFrame > other.targetFrame;
+    }
+};
+
+// Thread-safe note queue
+// Audio callback pops notes, Kotlin thread pushes notes
+class NoteQueue {
+private:
+    // Min-heap: earliest targetFrame is always on top
+    std::priority_queue<ScheduledNote, std::vector<ScheduledNote>, std::greater<ScheduledNote>> queue;
+    std::mutex mutex;
+
+public:
+    // Schedule a note to be played at exact frame
+    void schedule(const ScheduledNote& note) {
+        std::lock_guard<std::mutex> lock(mutex);
+        queue.push(note);
+        // LOGT, not LOGD: the audio callback takes this mutex once per block (drainUntil), so
+        // an always-on logging syscall while holding it is a priority-inversion / dropout hazard.
+        LOGT("📅 Scheduled note: frame=%lld, sample=%d, track=%d, freq=%.2f",
+             (long long)note.targetFrame, note.sampleId, note.trackId, note.frequency);
+    }
+
+    // Drain every note with targetFrame <= maxFrame into `out` (ascending frame order, since the
+    // heap pops earliest-first) under a SINGLE lock. Lets the audio callback dispatch a whole
+    // block's worth of notes without taking this mutex once per frame. `out` is appended to.
+    void drainUntil(int64_t maxFrame, std::vector<ScheduledNote>& out) {
+        std::lock_guard<std::mutex> lock(mutex);
+        while (!queue.empty() && queue.top().targetFrame <= maxFrame) {
+            out.push_back(queue.top());
+            queue.pop();
+        }
+    }
+
+    // Clear all scheduled notes (for stop/reset)
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex);
+        while (!queue.empty()) {
+            queue.pop();
+        }
+        LOGD("🗑️ Note queue cleared");
+    }
+
+    // Clear only notes scheduled at or after fromFrame (keeps earlier notes intact).
+    //
+    // ⚠️ `trackId >= 0` clears ONE track's, and the sequencer needs that: the eight song tracks each
+    // roll their lookahead back to their own phrase boundary, so a live edit must drop exactly the
+    // notes the track being rolled back is about to schedule again — and nothing another track has
+    // already queued past that frame and will not.
+    void clearFrom(int64_t fromFrame, int trackId = -1) {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::vector<ScheduledNote> keep;
+        while (!queue.empty()) {
+            ScheduledNote n = queue.top(); queue.pop();
+            if (n.targetFrame < fromFrame || (trackId >= 0 && n.trackId != trackId)) keep.push_back(n);
+        }
+        for (auto& n : keep) queue.push(n);
+    }
+};
+
+// Thread-safe kill queue (for Kill effect K00)
+class KillQueue {
+private:
+    std::priority_queue<ScheduledKill, std::vector<ScheduledKill>, std::greater<ScheduledKill>> queue;
+    std::mutex mutex;
+
+public:
+    // Schedule a kill event at exact frame
+    void schedule(const ScheduledKill& kill) {
+        std::lock_guard<std::mutex> lock(mutex);
+        queue.push(kill);
+        // LOGT, not LOGD — see NoteQueue::schedule.
+        LOGT("🔪 Scheduled kill: frame=%lld, track=%d", (long long)kill.targetFrame, kill.trackId);
+    }
+
+    // Drain every kill with targetFrame <= maxFrame into `out` (ascending order). See NoteQueue.
+    void drainUntil(int64_t maxFrame, std::vector<ScheduledKill>& out) {
+        std::lock_guard<std::mutex> lock(mutex);
+        while (!queue.empty() && queue.top().targetFrame <= maxFrame) {
+            out.push_back(queue.top());
+            queue.pop();
+        }
+    }
+
+    // Clear all scheduled kills
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex);
+        while (!queue.empty()) {
+            queue.pop();
+        }
+        LOGD("🗑️ Kill queue cleared");
+    }
+
+    // Clear only kills scheduled at or after fromFrame; `trackId >= 0` clears one track's. See
+    // NoteQueue::clearFrom for why the filter exists.
+    void clearFrom(int64_t fromFrame, int trackId = -1) {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::vector<ScheduledKill> keep;
+        while (!queue.empty()) {
+            ScheduledKill k = queue.top(); queue.pop();
+            if (k.targetFrame < fromFrame || (trackId >= 0 && k.trackId != trackId)) keep.push_back(k);
+        }
+        for (auto& k : keep) queue.push(k);
+    }
+};
+
+// Action discriminator for ScheduledParamUpdate. Live PBN/PVB/PVX/THO mutations are routed
+// through this queue so the voices[] write happens on the audio thread (no off-thread race) and
+// lands at the exact step frame instead of whenever the look-ahead scheduler reached the step.
+enum ParamUpdateAction {
+    PARAM_UPDATE_MOD_SOURCE = 0,  // write modSourceValues[sourceId] = value (Vxx phraseVol)
+    PARAM_UPDATE_PITCH_BEND,      // active voice: setPitchBendRaw(value)        [PBN]
+    PARAM_UPDATE_VIBRATO,         // active voice: setVibratoRaw(value, value2)  [PVB/PVX]
+    PARAM_UPDATE_TABLE_ROW,       // active sampler voice: tableRow = (int)value [THO]
+    // Live per-note / mixer FX — all applied on the audio thread at the exact step frame.
+    PARAM_UPDATE_PAN,             // active voice: setPan(value)                 [PAN]
+    PARAM_UPDATE_REVERB_SEND,     // active voice: reverbSend = value            [REV]
+    PARAM_UPDATE_DELAY_SEND,      // active voice: delaySend = value             [DEL]
+    PARAM_UPDATE_REVERSE,         // active sampler voice: reverse=(value!=0); value2!=0 → snap pos to new-dir boundary [BCK]
+    // ⚠️ THESE TWO ARE INERT ON A VOICE WHOSE FILTER TYPE IS OFF, and deliberately so: they move the
+    // filter the instrument declares, they do not switch one on.
+    PARAM_UPDATE_FILTER_CUT,      // active voice: filter cutoff    = value*255      [CUT]
+    PARAM_UPDATE_FILTER_RES,      // active voice: filter resonance = value*255      [RES]
+    PARAM_UPDATE_EQ_SLOT,         // active voice: apply eqPresets[(int)value] to chain.eq ((int)value<0 = bypass) [EQN]
+    PARAM_UPDATE_MASTER_EQ,       // global: apply master EQ preset (int)value ((int)value<0 = bypass) [EQM]
+    // ⚠️ THE MIXER FADERS ARE THE ONLY TWO ACTIONS THAT TOUCH NO VOICE, and their apply arms carry a
+    // trap the others do not: processAudioBlock SNAPSHOTS trackVolumes[]/masterVolume once, above the
+    // frame loop, and the hot loops read the snapshot. Writing only the member would apply a whole
+    // block late — audible as a ramp that lags, and invisible to anything that only reads back the
+    // member. Both arms write the member AND the in-scope snapshot.
+    PARAM_UPDATE_TRACK_VOL,       // mixer: trackVolumes[trackId] = value          [VTR]
+    PARAM_UPDATE_MASTER_VOL,      // mixer: masterVolume = value (global)          [VMV]
+    // ⚠️ APPENDED, and these two must stay at the end. An action's NUMBER is its identity — every
+    // value above is a positional entry in a queue record the audio thread branches on.
+    //
+    // The two above carry a SLOT and read the preset bank; these carry the BAND VALUES themselves, in
+    // `eqBands`, because an AUS/AUF morph sets the EQ to a setting no preset holds.
+    PARAM_UPDATE_EQ_BANDS,        // active voice: apply eqBands to chain.eq        [EQN + AUS/AUF]
+    PARAM_UPDATE_MASTER_EQ_BANDS, // global: apply eqBands to the master EQ         [EQM + AUS/AUF]
+    // ⚠️ THE ONE ACTION THAT SWITCHES A FILTER ON, where the two above it deliberately cannot. It
+    // carries the TYPE in `value2` and the cutoff in `value` so both land in one record on one frame:
+    // two records is two blocks, and a filter that opens before it changes shape clicks. Appended,
+    // like everything else here — an action's number is its identity.
+    PARAM_UPDATE_FILTER_MODE,     // active voice: filter type = value2, cutoff = value*255 [LPF/HPF/BPF]
+    // The two dirt boxes. Each writes a value the per-block recompute already reads, so neither
+    // needs a second write to make the change audible — and each dies with its note, because a
+    // trigger reseeds both from the instrument. Appended, as ever.
+    PARAM_UPDATE_DRIVE,           // active voice: overdrive = value*255                   [DRV]
+    PARAM_UPDATE_CRUSH,           // active voice: bits = high nibble, downsample = low    [CRU]
+    // Fine tune, the same per-note lifetime and the same "write what the block already reads" shape.
+    // Both voice types fold it into their pitch every block, so it bends a note already sounding.
+    PARAM_UPDATE_FINE_TUNE,       // active voice: fine tune = value*255, 0x80 = in tune    [FIN]
+    // ⚠️ THE ONE ACTION HERE THAT ACCUMULATES. Every other arm above writes "the parameter is now
+    // this"; this one adds a signed STEP to a running count the voice keeps, so two records slide
+    // the window twice and a dropped record loses a movement rather than a value. Appended, as ever.
+    PARAM_UPDATE_LOOP_SLIDE,      // active sampler voice: loop window += value*255 sixteenths [LPO]
+};
+
+// One EQ setting as AUTHORED HEX — the domain the project file and the FX cells are written in, not
+// the Hz/dB/Q the engine runs on. It crosses the seam in this form because interpolating hex is what
+// makes a frequency sweep linear in log-frequency; `applyEqBandsToChain` does the conversion, using
+// the same arithmetic as setEqBand().
+struct EqBandsHex {
+    int type[3] = {};                    // 0 OFF | 1 LOSHELF | 2 LOWCUT | 3 BELL | 4 HISHELF | 5 HICUT
+    int freq[3] = { 128, 128, 128 };     // 00-FF → 20-20000 Hz, log
+    int gain[3] = { 120, 120, 120 };     // 0-240 → −12.0..+12.0 dB (120 = flat)
+    int q[3]    = { 128, 128, 128 };     // 00-FF → 0.1-10.0, log
+};
+
+// Scheduled parameter update (e.g. Vxx on empty step — update phraseVol at exact frame)
+struct ScheduledParamUpdate {
+    int64_t targetFrame;     // Exact audio frame to apply the update
+    int trackId;             // Which track's active voice to update
+    int sourceId;            // ModSourceId to write (PARAM_UPDATE_MOD_SOURCE)
+    float value;             // New value: mod-source value / bend rate / vibrato speed / table row
+    int action = PARAM_UPDATE_MOD_SOURCE;  // discriminator (default keeps Vxx call sites unchanged)
+    float value2 = 0.0f;     // second arg: vibrato depth (PARAM_UPDATE_VIBRATO)
+    // ⚠️ LAST, and defaulted: every other call site aggregate-initialises this struct positionally and
+    // stops before here. A field inserted above instead would silently re-bind all of them.
+    EqBandsHex eqBands{};    // PARAM_UPDATE_EQ_BANDS / PARAM_UPDATE_MASTER_EQ_BANDS only
+
+    bool operator>(const ScheduledParamUpdate& other) const {
+        return targetFrame > other.targetFrame;
+    }
+};
+
+class ParamUpdateQueue {
+private:
+    std::priority_queue<ScheduledParamUpdate, std::vector<ScheduledParamUpdate>, std::greater<ScheduledParamUpdate>> queue;
+    std::mutex mutex;
+
+public:
+    void schedule(const ScheduledParamUpdate& update) {
+        std::lock_guard<std::mutex> lock(mutex);
+        queue.push(update);
+    }
+
+    // Drain every update with targetFrame <= maxFrame into `out` (ascending order). See NoteQueue.
+    void drainUntil(int64_t maxFrame, std::vector<ScheduledParamUpdate>& out) {
+        std::lock_guard<std::mutex> lock(mutex);
+        while (!queue.empty() && queue.top().targetFrame <= maxFrame) {
+            out.push_back(queue.top());
+            queue.pop();
+        }
+    }
+
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex);
+        while (!queue.empty()) queue.pop();
+    }
+
+    // `trackId >= 0` clears one track's — see NoteQueue::clearFrom. ⚠️ The two GLOBAL actions
+    // (PARAM_UPDATE_MASTER_EQ / _VOL) carry the trackId of the track that AUTHORED them, and go with
+    // it: the track being rolled back is the one that will emit them again.
+    void clearFrom(int64_t fromFrame, int trackId = -1) {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::vector<ScheduledParamUpdate> keep;
+        while (!queue.empty()) {
+            ScheduledParamUpdate u = queue.top(); queue.pop();
+            if (u.targetFrame < fromFrame || (trackId >= 0 && u.trackId != trackId)) keep.push_back(u);
+        }
+        for (auto& u : keep) queue.push(u);
+    }
+};
+
+// Pre-converted EQ band params (Hz/dB/Q) — populated by setInstrumentEqSlot().
+struct EqBandData {
+    // ⚠️ 0=OFF 1=LOSHELF 2=LOWCUT 3=BELL 4=HISHELF 5=HICUT. The number IS the identity (it is what the
+    // project file stores), and LOWCUT/HICUT were appended — so this is not the order the names
+    // suggest. Defined once in effects/modules/eq-module.h; append there, never insert.
+    int   type   = 0;
+    float freqHz = 1000.0f; // 20–20000 Hz
+    float gainDb = 0.0f;    // −12..+12 dB
+    float q      = 1.0f;    // 0.1–10.0
+};
+
+// Instrument playback parameters
+struct InstrumentParams {
+    int startPoint;     // 0-255 (normalized position)
+    int endPoint;       // 0-255 (normalized position)
+    bool reverse;       // Play backwards
+    // ⚠️ 3 (OSCILLATOR) is a FORWARD loop whose SCAN RATE is retuned so one trip round the loop is
+    // one cycle of the played note. So the note's pitch comes from the note and the loop LENGTH
+    // becomes a timbre control — the opposite of mode 1, where a short loop IS the pitch.
+    int loopMode;       // 0=off, 1=forward, 2=ping-pong, 3=oscillator
+    int loopStart;      // 0-255 (normalized position)
+    int loopEnd;        // 0-255 (normalized position); loop region top. 255 = sample end.
+
+    // Distortion/bitcrusher parameters
+    int drive;          // 0-255 (pre-gain boost)
+    int crush;          // 0-15 (bit depth reduction, 0=off/16-bit, 15=1-bit)
+    int downsample;     // 0-15 (sample rate reduction, 0=off, 1=÷2, 2=÷4, etc.)
+
+    // Filter parameters
+    int filterType;     // 0=off, 1=lp, 2=hp, 3=bp, 4=notch, 5=peak
+    int filterCut;      // 0-255 (cutoff frequency)
+    int filterRes;      // 0-255 (resonance)
+    int filterDrive;    // 0-255 (SVF resonance saturation; 128 = DaisySP default)
+
+    // EQ parameters (pre-converted; set by setInstrumentEqSlot)
+    EqBandData eqBands[3];
+    bool eqActive = false;  // true when at least one band is non-bypass
+
+    // Send levels (float 0.0–1.0; set by setInstrumentSendLevels)
+    float reverbSend = 0.0f;
+    float delaySend  = 0.0f;
+
+    // ⚠️ THE EXACT-FRAME WINDOW: −1 = unset, and then startPoint/endPoint above decide. When set it
+    // REPLACES them, in frames, because 0-255 cannot express a frame.
+    //
+    // startPoint/endPoint are eighths of a percent of the buffer: on a 2-second 44.1 kHz sample one
+    // step is 346 frames, ~8 ms. That is the right grain for a playback parameter you dial by ear, and
+    // the wrong one for the sample editor's audition, which exists to let you hear the exact boundary
+    // CROP is about to cut at — dozens of single-frame nudges land inside one step and the audition
+    // does not change, then the crop applies the frame you actually chose.
+    //
+    // Set only by setInstrumentFrameWindow, and CLEARED by every setInstrumentParams push — so an
+    // ordinary push of the instrument is what ends a preview's window, and no caller has to remember.
+    //
+    // ⚠️ Read at TRIGGER, and then carried on the voice (`Voice::windowStartFrame`), because the mix
+    // loop re-derives the endpoints from startPoint/endPoint every block. Clearing this mid-note ends
+    // the window for the NEXT note, never for one already ringing.
+    int startFrame = -1;
+    int endFrame   = -1;
+
+    InstrumentParams() : startPoint(0), endPoint(255), reverse(false),
+                         loopMode(0), loopStart(0), loopEnd(255), drive(0), crush(0), downsample(0),
+                         filterType(0), filterCut(128), filterRes(0), filterDrive(128),
+                         eqActive(false), reverbSend(0.0f), delaySend(0.0f),
+                         startFrame(-1), endFrame(-1) {}
+};
+
+// Per-slot modulation configuration set from Kotlin.
+// Copied to VoiceModSlot when a note triggers on that instrument.
+struct InstrumentModSlot {
+    int type;          // 0=NONE, 1=AHD, 2=ADSR, 3=LFO, 4=DRUM, 5=TRIG, 6=SCALAR
+    int dest;          // 0=NONE, 1=VOL, 2=PAN, 3=PITCH, 4=FINE_PITCH, 5=CUT, 6=RES, 7=STA, 8=MOD_AMT, 9=MOD_RATE, 10=MOD_BOTH
+    float amount;      // Modulation depth 0.0-1.0 (normalised from 00-FF)
+    int attackSamples; // Attack duration in audio samples
+    int holdSamples;   // Hold duration in audio samples (AHD hold; unused in ADSR)
+    int decaySamples;  // Decay duration in audio samples
+    float sustainLevel; // ADSR: sustain level 0.0-1.0
+    float lfoHz;        // LFO: frequency in Hz
+    int oscShape;       // LFO: 0=TRI,1=SIN,2=RMP+,3=RMP-,4=EXP+,5=EXP-,6=SQU+,7=SQU-,8=RND,9=DRNK
+    int lfoTrigMode;    // LFO: 0=FREE, 1=RETG, 2=HOLD, 3=ONCE
+    int releaseSamples; // ADSR/TRIG: release duration in audio samples (0 = instant)
+
+    InstrumentModSlot() : type(0), dest(0), amount(0.5f),
+                          attackSamples(0), holdSamples(0), decaySamples(0),
+                          sustainLevel(0.5f), lfoHz(4.0f), oscShape(0), lfoTrigMode(1),
+                          releaseSamples(0) {}
+};
+
+// Tables are mini-sequencers that run alongside playing voices.
+// Each table has 16 rows with transpose, volume, and 3 FX columns.
+
+struct TableRow {
+    int8_t transpose;       // Semitones: 00=0, 01-7F=+1 to +127, 80-FF=-128 to -1
+    uint8_t volume;         // 00-FF (FF = no change / pass-through)
+    uint8_t fx1Type;        // Effect 1 type (0 = none)
+    uint8_t fx1Value;       // Effect 1 value
+    uint8_t fx2Type;        // Effect 2 type
+    uint8_t fx2Value;       // Effect 2 value
+    uint8_t fx3Type;        // Effect 3 type
+    uint8_t fx3Value;       // Effect 3 value
+
+    TableRow() : transpose(0), volume(0xFF),
+                 fx1Type(0), fx1Value(0),
+                 fx2Type(0), fx2Value(0),
+                 fx3Type(0), fx3Value(0) {}
+};
+
+struct Table {
+    TableRow rows[16];      // 16 rows per table
+    bool loaded;            // Whether this table has been loaded from Kotlin
+
+    Table() : loaded(false) {
+        // Rows initialized by default constructor
+    }
+};
+
+// Convert unsigned transpose byte to signed semitones
+inline int transposeToSemitones(uint8_t transpose) {
+    if (transpose < 0x80) {
+        return transpose;  // 00-7F = 0 to +127
+    } else {
+        return transpose - 256;  // 80-FF = -128 to -1
+    }
+}

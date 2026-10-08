@@ -1,0 +1,122 @@
+#pragma once
+
+// ─── config.json — the user-editable configuration file ──────────────────────────────────────────
+//
+// This header owns the FILE — its schema, and the starter template every platform seeds — plus the
+// `folders` section. The other two sections, `controller` and `keyboard`, are `ui/input_config.h`:
+// they are read by the shell rather than by pt-ui, because only the shell may know what an
+// `SDL_Keycode` is.
+//
+// SHIPS ON EVERY PLATFORM'S RELEASE as of v0.9.4. It was debug-gated when the shape was still being
+// tested; the gate is gone from the read, the seed and the dispatcher alike, so what a user edits on
+// Windows behaves identically on Android and on a handheld. Nothing about it is conditional any more —
+// if you find yourself adding a `caps.debug` back, you are re-opening a decision, not fixing a bug.
+//
+// A sibling of settings.json in the SPRITESTEP root, but the opposite kind of file: settings.json is
+// WRITTEN by the app and never meant to be hand-edited; config.json is WRITTEN BY THE USER and never
+// rewritten by the app. It maps a load category to the directory the file browser should START in when
+// you load that kind of thing — so a user whose samples live outside SPRITESTEP/Samples does not
+// climb out of it every time.
+//
+// SCOPE (0.9.4): the LOAD-BROWSE start directory for five categories. It does NOT redirect SAVES — the
+// sample-editor save, preset save and export destinations keep their built-in folders. That split is
+// deliberate: "samples" here means "where a sample LOAD starts browsing", one clear meaning, rather than
+// silently also moving where your edits are written. Save-destination overrides (the plan's "renders"
+// and "sample-editor saves") are a later increment; they are NOT keys here, so an unknown key is simply
+// ignored rather than advertised-and-inert.
+//
+// SCHEMA (this section only — see ui/input_config.h for `controller` and `keyboard`):
+//   { "folders": { "samples": "...", "soundfonts": "...", "instruments": "...",
+//                  "projects": "...", "themes": "..." } }
+// Every key is OPTIONAL. An absent key → that category keeps its default. An empty string, a
+// non-string value, a missing "folders" object, or an unparseable file → the same: defaults stand. A
+// value that does not name a directory this filesystem can READ is ignored AT USE
+// (`resolve_browse_dir`), so a typo, a deleted folder, or a path from another install costs one
+// category's convenience, never a browser that opens on nothing.
+//
+// ⚠️ **A VALUE IS ROOT-RELATIVE UNLESS IT IS ABSOLUTE** — `resolve_folder_override` below, and it is
+// one rule on every platform rather than an Android arm. `"samples": "Samples"` is what the template
+// seeds and what a user can type, read and carry to another device; `"samples": "/mnt/sd/Packs"` still
+// means exactly that. The rule exists because on Android the app's root is a granted-tree id
+// (`pt://a1b2c3d4e5f6/…`) that nobody can type, discover or move between devices — a starter file full
+// of those is a document that only describes the machine it was written on, and it goes stale the day
+// the home folder changes.
+
+#include "ui/filesystem.h"
+#include "ui/input_config.h"
+
+#include <optional>
+#include <string>
+
+namespace pt::ui {
+
+/** The five LOAD-browse categories' overrides. `std::nullopt` = "use the built-in default". */
+struct FolderConfig {
+    std::optional<std::string> samples;
+    std::optional<std::string> soundfonts;
+    std::optional<std::string> instruments;
+    std::optional<std::string> projects;
+    std::optional<std::string> themes;
+};
+
+/**
+ * Read config.json into `out`. Returns false when there is no file (the common case, and NOT an error)
+ * or when the file is present but unparseable — in both cases `out` is left untouched, so the caller's
+ * defaults stand. A present, valid file fills only the keys it carries.
+ */
+bool load_folder_config(FileSystem& fs, FolderConfig& out);
+
+/**
+ * A `folders` value → the path it names. ABSOLUTE (`/mnt/sd/Packs`, `C:\Music`, `\\server\x`) or a URI
+ * (`pt://<id>/Samples`) is taken VERBATIM; anything else is joined onto `media_root`.
+ *
+ * ⚠️ This is only the STRING half. It answers "what place does this value name?", never "can that place
+ * be read here?" — `resolve_browse_dir` is the whole rule, and the browser must call that one.
+ *
+ * `media_root` empty ⇒ the value is returned unchanged, which is the answer on a platform that has no
+ * root to be relative to yet (Android before a folder is granted).
+ */
+std::string resolve_folder_override(const std::string& value, const std::string& media_root);
+
+/**
+ * The directory a LOAD browse should actually START in for one category: the override when it names a
+ * directory this filesystem can reach, the same value RE-ROOTED when it was authored under another
+ * install's app root, else `def` — which the FileSystem accessors create on first use and is therefore
+ * always real.
+ *
+ * ⚠️⚠️ **`is_directory` ALONE IS NOT THE TEST, and believing it was is what made a user's whole song
+ * library disappear.** On Android the app holds no storage permission, and a plain
+ * `/storage/emulated/0/…` path there is `stat`-able but not listable — so the override was accepted and
+ * the browser opened on a directory that could only ever draw as empty. The kind of path (URI vs plain)
+ * has to match the root's before `is_directory` means anything.
+ *
+ * ⭐ The re-rooting is `resolve_media_path`'s (songcore/media_path.h), through the same
+ * `app_root_relative_tail`, because a project's sample paths and a config's browse paths are the same
+ * problem — "a place, written by a human or by an earlier install, that has to mean something on THIS
+ * device" — and two answers to it would put a project's samples somewhere the browser will not open.
+ */
+std::string resolve_browse_dir(FileSystem& fs, const std::optional<std::string>& value,
+                               const std::string& def);
+
+/**
+ * Write a STARTER config.json when none exists, so the feature is DISCOVERABLE — the app used not to
+ * create the file at all, so a user who wanted to redirect a browse folder had nothing to find or edit
+ * (the reported "can't see the folders settings"). The template carries ALL THREE sections, each
+ * pre-filled with what the app is doing right now, plus a note per section explaining how to change it.
+ * Read as a document, it is the schema; read as a config, it is a no-op.
+ *
+ * `keyboardDefaults` is the shell's LIVE default key map, passed in rather than restated here — pt-ui
+ * cannot name an SDL key, and a second hand-written copy of that table is a copy that drifts. What the
+ * template says the keys are is therefore what they actually are, derived from the same table the app
+ * dispatches through, in the spelling `SDL_GetKeyName` produces (so it round-trips through
+ * `SDL_GetKeyFromName` when the user edits a line rather than replacing it).
+ *
+ * ⚠️ NEVER CLOBBERS AN EXISTING FILE. config.json is the user's, written by them and never rewritten by
+ * the app (the header's contract); this seeds a blank canvas ONCE and then keeps its hands off. Returns
+ * true iff it actually wrote a new file (absent before) — false if one was already there or the write
+ * failed. Pre-filling with the default dirs also creates those dirs via the FileSystem accessors, which
+ * is harmless (they are created on first use anyway).
+ */
+bool seed_config_template(FileSystem& fs, const KeyboardBindings& keyboardDefaults);
+
+}  // namespace pt::ui

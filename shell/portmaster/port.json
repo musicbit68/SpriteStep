@@ -1,0 +1,31 @@
+{
+    "version": 4,
+    "name": "spritestep.zip",
+    "items": [
+        "SPRITESTEP.sh",
+        "spritestep"
+    ],
+    "items_opt": [],
+    "attr": {
+        "title": "SPRITESTEP",
+        "porter": [
+            "conan"
+        ],
+        "desc": "SPRITESTEP is a music tracker for retro gaming handhelds.",
+        "desc_md": null,
+        "inst": "Ready to run - no BIOS, no extra files. Your songs and samples live in the port's own data/ folder, created on first launch.",
+        "inst_md": null,
+        "genres": [
+            "other"
+        ],
+        "image": null,
+        "rtr": true,
+        "exp": false,
+        "runtime": null,
+        "min_glibc": "2.31",
+        "reqs": [],
+        "arch": [
+            "aarch64"
+        ]
+    }
+}
