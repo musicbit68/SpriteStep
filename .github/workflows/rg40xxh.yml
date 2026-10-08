@@ -81,6 +81,24 @@ jobs:
           cd package/SpriteStep
           zip -r ../SpriteStep.zip port.json README.md screenshot.png SpriteStep.sh SpriteStep/
 
+      - name: Validate PortMaster package
+        run: |
+          test -f package/SpriteStep.zip
+          unzip -l package/SpriteStep.zip
+          unzip -t package/SpriteStep.zip
+          rm -rf package/verify
+          mkdir -p package/verify
+          unzip -q package/SpriteStep.zip -d package/verify
+          test -f package/verify/port.json
+          test -f package/verify/SpriteStep.sh
+          test -f package/verify/SpriteStep/SpriteStep
+          test ! -f package/verify/SpriteStep.zip
+          bash -n package/verify/SpriteStep.sh
+          test -x package/verify/SpriteStep/SpriteStep
+          file package/verify/SpriteStep/SpriteStep | grep -E 'ELF 64-bit.*ARM aarch64'
+          grep -F 'GAMEDIR="/$directory/ports/SpriteStep"' package/verify/SpriteStep.sh
+          grep -F './SpriteStep' package/verify/SpriteStep.sh
+
       - name: Upload RG40XXH package
         uses: actions/upload-artifact@v4
         with:
